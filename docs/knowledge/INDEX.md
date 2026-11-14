@@ -16,6 +16,9 @@
 - Failure/ownership/billing tests: `apps/max-bot/tests/`.
 - Проверка доступности из сети с ограничениями: `infra/rf-probe/` (probe, collector, units, README).
 - Релиз бота из commit: `apps/max-bot/deploy/release.py`.
+- Backup с проверкой и retention: `infra/backup/`.
+- Архив разовых сценариев прежних выкладок: `tools/legacy/deploy/` (не запускать как штатный путь).
+- [План обновления ОС relay](../RELAY-OS-UPGRADE.md).
 - Приватные one-off operator scripts импортированы обезличенно в deploy/tools, не являются штатным pipeline.
 
 ## Приватный операционный индекс

@@ -89,7 +89,7 @@ apps/max-bot/
   vpnmax/                 # приложение: API, Store, worker, команды, billing, registration
   panel-extension/        # два backend adapter и React/CSS раздела пользователей
   tests/                  # offline suite; contract tests с optional pinned upstream
-  deploy/                 # build helpers и исторические operator acceptance scripts
+  deploy/                 # release.py, ротация ключа панели, build helpers, acceptance scripts
   public-guide/           # HTML-исходник инструкции и исторические Caddy-варианты
   certs/                  # публичный корневой CA MAX, НЕ приватный ключ
 infra/

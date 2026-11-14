@@ -6,7 +6,8 @@ After=network-online.target
 [Service]
 Type=oneshot
 User=root
-ExecStart=/usr/bin/python3 /root/.local/share/vpn-max/deployment/backup.py
+# Site value VPN_MAX_BACKUP_SSH lives in the drop-in vpn-max-backup.service.d/site.conf
+ExecStart=/usr/bin/python3 /usr/local/lib/vpn-max/backup.py
 TimeoutStartSec=240
 NoNewPrivileges=true
 ProtectSystem=strict
