@@ -79,6 +79,39 @@ def test_no_reachable_server_at_all_tells_nobody(env):
 def test_people_without_keys_there_and_stale_data_get_nothing(env):
     s, p, m, b, mine = env
     outage(s)
-    assert asyncio.run(b.notify_unreachable(T + 900 + 4 * 3600)) == 0 and m.sent == []
+    assert asyncio.run(b.notify_unreachable(T + 900 + 4 * 3600)) == 0
+    assert [uid for uid, _ in m.sent] == [OWNER]  # only the owner hears that the probe went silent
+    b.probe_silent = False
     asyncio.run(b.notify_unreachable(T + 900))
-    assert [uid for uid, _ in m.sent] == [100]
+    assert [uid for uid, _ in m.sent] == [OWNER, 100]
+
+
+def test_outage_length_is_recorded_and_reported(env):
+    s, p, m, b, mine = env
+    outage(s)
+    s.save_reachability(report(T + 3 * 86400, s1='ok', s3='ok'))
+    (o,) = s.outages()
+    assert (o['server_id'], o['started'], o['ended']) == (3, T, T + 3 * 86400)
+    text = b.reachability_report(T + 3 * 86400 + 60)
+    assert 'Прошлые блокировки:' in text and 'Node 3 — 3 дн' in text and 'В среднем: 3 дн.' in text
+
+
+def test_single_failed_run_is_not_recorded_as_an_outage(env):
+    s, p, m, b, mine = env
+    s.save_reachability(report(T, s1='ok', s3='fail'))
+    s.save_reachability(report(T + 900, s1='ok', s3='ok'))
+    assert s.outages() == []
+
+
+def test_owner_is_told_once_when_the_probe_goes_silent_and_once_when_it_returns(env):
+    s, p, m, b, mine = env
+    s.save_reachability(report(T, s1='ok', s3='ok'))
+    asyncio.run(b.notify_unreachable(T + 600))
+    assert m.sent == []
+    asyncio.run(b.notify_unreachable(T + 3700))
+    asyncio.run(b.notify_unreachable(T + 3800))
+    assert [u for u, _ in m.sent] == [OWNER] and 'не присылает результаты' in m.sent[0][1]
+    s.save_reachability(report(T + 4000, s1='ok', s3='ok'))
+    asyncio.run(b.notify_unreachable(T + 4010))
+    asyncio.run(b.notify_unreachable(T + 4070))
+    assert len(m.sent) == 2 and 'снова присылает' in m.sent[1][1]

@@ -99,6 +99,9 @@ class Store:
               source TEXT NOT NULL, payment_id TEXT, reminded INTEGER NOT NULL DEFAULT 0,
               cancelled INTEGER);
             CREATE INDEX IF NOT EXISTS grants_person ON grants(person_id, expires);
+            CREATE TABLE IF NOT EXISTS reach_outages(
+              id INTEGER PRIMARY KEY, vantage TEXT NOT NULL, server_id INTEGER NOT NULL, name TEXT NOT NULL,
+              started INTEGER NOT NULL, ended INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS reachability(
               vantage TEXT NOT NULL, server_id INTEGER NOT NULL, name TEXT NOT NULL,
               status TEXT NOT NULL, stage TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
@@ -731,6 +734,10 @@ class Store:
                 if old and checked <= old['checked']:
                     continue  # a replayed or out-of-order report must not rewind the state
                 same = bool(old) and old['status'] == status
+                if old and old['status'] == 'fail' and old['fails'] >= REACH_CONFIRM and status == 'ok':
+                    # A confirmed outage just ended: keep its real length for the record.
+                    db.execute('INSERT INTO reach_outages(vantage,server_id,name,started,ended) VALUES(?,?,?,?,?)',
+                               (vantage, sid, str(item.get('name') or f'Сервер {sid}')[:60], old['since'], checked))
                 fails = 0 if status == 'ok' else (old['fails'] if same else 0) + 1
                 number = lambda key: int(item[key]) if isinstance(item.get(key), (int, float)) else None
                 db.execute('''INSERT INTO reachability(vantage,server_id,name,status,stage,detail,handshake_ms,rtt_ms,
@@ -753,6 +760,10 @@ class Store:
             online = {r['id']: r['online'] for r in db.execute('SELECT id,online FROM server_catalog')}
             return [dict(r, panel_online=online.get(r['server_id']))
                     for r in db.execute('SELECT * FROM reachability ORDER BY server_id,vantage')]
+
+    def outages(self, limit=20):
+        with self.connect() as db:
+            return [dict(r) for r in db.execute('SELECT * FROM reach_outages ORDER BY ended DESC,id DESC LIMIT ?', (limit,))]
 
     def reachability_notified(self, vantage, sid, status):
         with self.connect() as db:

@@ -56,6 +56,27 @@ class ReachabilityMixin:
             return 'из России сейчас не подключается'
         return 'из России подключается' if all(r['status'] == 'ok' for r in rows) else ''
 
+    PROBE_SILENCE = 3600
+    probe_silent = False
+
+    async def probe_watch(self, now):
+        """Tell the owner once when probe reports stop coming, and once when they resume."""
+        rows = self.store.reachability()
+        if not rows or not self.owner:
+            return
+        age = now - max(r['checked'] for r in rows)
+        silent = age > self.PROBE_SILENCE
+        if silent == self.probe_silent:
+            return
+        text = (f'Проверка доступности из России не присылает результаты уже {span(age)}. Отметки ✅/⛔ в боте '
+                'пропадут через 3 часа после последней проверки. Что проверить: сервер проверки в России '
+                'и расписание rf-probe-collect.' if silent else 'Проверка доступности из России снова присылает результаты.')
+        try:
+            await self.max.send(self.owner, text)
+        except Exception:
+            return  # retried on the next pass
+        self.probe_silent = silent
+
     async def notify_unreachable(self, now=None):
         """Ask each owner once per outage whether to revoke their keys on a server Russia cannot reach.
 
@@ -63,6 +84,7 @@ class ReachabilityMixin:
         When no server at all is reachable the probe itself is the likelier fault: nobody is told.
         Returns the number of people messaged."""
         now = int(now if now is not None else time.time())
+        await self.probe_watch(now)
         fresh = [r for r in self.store.reachability() if now - r['checked'] <= REACH_FRESH]
         if not any(r['status'] == 'ok' for r in fresh):
             return 0
@@ -125,6 +147,12 @@ class ReachabilityMixin:
                 state = f"НЕ подключается уже {span(now - row['since'])}: {why(row)}"
             stale = ' (данные устарели)' if now - row['checked'] > REACH_FRESH else ''
             lines.append(f"• {row['name']} — {state}. Точка {row['vantage']}, {ago(now - row['checked'])}{stale}.")
+        past = self.store.outages(10)
+        if past:
+            day = lambda at: time.strftime('%d.%m', time.gmtime(at))
+            lines.append('Прошлые блокировки:')
+            lines += [f"• {o['name']} — {span(o['ended'] - o['started'])}, {day(o['started'])}–{day(o['ended'])}" for o in past]
+            lines.append('В среднем: ' + span(sum(o['ended'] - o['started'] for o in past) / len(past)) + '.')
         lines.append('Одна точка — это один провайдер: у других операторов картина может отличаться.')
         return '\n'.join(lines)
 

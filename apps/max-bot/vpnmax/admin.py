@@ -71,7 +71,7 @@ def add_admin_routes(app, store, bot, secret, lock):
                     replacements=replacements, operations=operations, audit=audit, jobs=jobs,
                     revocations=store.revocation_backlog(), panel=bot.panel_status,
                     payments=store.payments_snapshot(),
-                    reachability=store.reachability(),
+                    reachability=store.reachability(), outages=store.outages(),
                     billing={'price': billing.PRICE_RUB, 'period_days': billing.PERIOD // 86400, 'max_slots': billing.MAX_SLOTS})
 
     @app.post('/internal/admin/people', dependencies=[Depends(auth)], status_code=201)

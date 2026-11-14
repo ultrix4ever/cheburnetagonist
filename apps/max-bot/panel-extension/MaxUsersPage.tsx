@@ -11,11 +11,21 @@ type Server = { id: number; name: string; online: boolean | null }
 type Replacement = { id: string; max_id: number; old_id: number; new_id: number | null; state: string; expires: number }
 type Job = { id: string; person_id: number; state: string; result: { revoked?: number; unconfirmed?: number[]; uncertain_operations?: string[] } | null }
 type Audit = { id: number; at: number; action: string; target: string; max_id: number | null }
-type Snapshot = { people: Person[]; profiles: Profile[]; servers: Server[]; replacements: Replacement[]; jobs: Job[]; audit: Audit[]; operations: { id: string; max_id: number; action: string; state: string }[]; payments: Payment[]; billing: { price: number; period_days: number; max_slots: number } }
+type Reach = { vantage: string; server_id: number; name: string; status: string; stage: string; checked: number; since: number; fails: number; rtt_ms: number | null; panel_online: number | null }
+type Outage = { id: number; server_id: number; name: string; vantage: string; started: number; ended: number }
+type Snapshot = { reachability?: Reach[]; outages?: Outage[]; people: Person[]; profiles: Profile[]; servers: Server[]; replacements: Replacement[]; jobs: Job[]; audit: Audit[]; operations: { id: string; max_id: number; action: string; state: string }[]; payments: Payment[]; billing: { price: number; period_days: number; max_slots: number } }
 type Form = { id?: number; max_id: string; name: string; quota: number; phone: string; active: boolean; free: boolean; allowed_servers: number[] }
 const paymentStatus: Record<string, string> = { awaiting: 'Ждём перевод', submitted: 'На проверке', confirmed: 'Подтверждён', rejected: 'Отклонён', cancelled: 'Отменён' }
 const grantSource: Record<string, string> = { payment: 'оплата', manual: 'вручную', free_to_paid: 'переход с бесплатного' }
 const day = (ts: number) => new Date(ts * 1000).toLocaleDateString('ru-RU')
+const moment = (ts: number) => new Date(ts * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+const span = (seconds: number) => { const m = Math.max(Math.floor(seconds / 60), 0); return m < 60 ? `${m} мин` : m < 2880 ? `${Math.floor(m / 60)} ч` : `${Math.floor(m / 1440)} дн` }
+function reachText(r: Reach, now: number) {
+  if (now - r.checked > 3 * 3600) return 'Нет свежих данных'
+  if (r.status === 'ok') return '✅ Подключается' + (r.rtt_ms != null ? `, отклик ${r.rtt_ms} мс` : '')
+  if (r.fails < 2) return 'Одна неудачная проверка, ждём подтверждения'
+  return `⛔ Не подключается уже ${span(now - r.since)}` + (r.panel_online === 0 ? ' (панель сервер тоже не видит)' : '')
+}
 const keys = (n: number) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'ключ' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'ключа' : 'ключей'}`
 function paidText(p: Profile, free: boolean) {
   if (free) return 'Бесплатно'
@@ -77,6 +87,14 @@ export function MaxUsersPage({ onUnauthorized }: { onUnauthorized: () => void })
     </div></div>
     <p className="muted">Пользователи регистрируются сами: пишут боту, делятся номером из MAX (✓ — номер подтверждён MAX) и вводят имя. Новый аккаунт платный, с 0 ключей. Имя, телефон, серверы, бесплатность и названия ключей можно менять здесь. Лимит общий для всех серверов; ключи на паузе тоже занимают место.</p>
     {error && <p className="form-error" role="alert">{error}</p>}
+    {!!data?.reachability?.length && <div className="card max-reach">
+      <h3>Доступность серверов из России</h3>
+      <div className="max-table"><table><thead><tr><th>Сервер</th><th>Состояние</th><th>Проверено</th><th>Точка</th></tr></thead><tbody>
+        {data.reachability.map(r => <tr key={r.vantage + r.server_id}><td>{serverName(r.server_id)}</td><td>{reachText(r, Date.now() / 1000)}</td><td>{moment(r.checked)}</td><td>{r.vantage}</td></tr>)}
+      </tbody></table></div>
+      {!!data.outages?.length && <p className="muted small">Прошлые блокировки: {data.outages.map(o => `${serverName(o.server_id)} — ${span(o.ended - o.started)} (${day(o.started)}–${day(o.ended)})`).join('; ')}</p>}
+      <p className="muted small">Настоящее VPN-подключение с сервера в России, раз в 15 минут. Блокировка адреса обычно снимается сама за несколько дней.</p>
+    </div>}
     {form && <form className="card max-user-form" onSubmit={e => { e.preventDefault(); save() }}>
       <h3>{form.id ? 'Редактировать пользователя' : 'Новый пользователь'}</h3>
       <div className="max-fields">
