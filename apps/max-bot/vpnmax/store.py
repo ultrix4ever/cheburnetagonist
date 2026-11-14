@@ -754,6 +754,20 @@ class Store:
             return [dict(r, panel_online=online.get(r['server_id']))
                     for r in db.execute('SELECT * FROM reachability ORDER BY server_id,vantage')]
 
+    def reachability_notified(self, vantage, sid, status):
+        with self.connect() as db:
+            db.execute('UPDATE reachability SET notified=? WHERE vantage=? AND server_id=?', (status, vantage, sid))
+
+    def owned_keys_on(self, sid):
+        """Live keys of active bot users on a server, grouped by the owner's MAX id."""
+        owners = {}
+        with self.connect() as db:
+            for r in db.execute('''SELECT p.*,o.max_id AS owner_max_id FROM profiles p JOIN people o ON o.id=p.person_id
+                   WHERE p.server_id=? AND p.state IN ('active','paused') AND o.active AND o.max_id IS NOT NULL
+                   ORDER BY p.id''', (sid,)):
+                owners.setdefault(r['owner_max_id'], []).append(dict(r))
+        return owners
+
     def unreachable_servers(self, now=None, confirm=REACH_CONFIRM, fresh=REACH_FRESH):
         """Server ids a fresh, confirmed probe could not use. Stale results warn nobody."""
         now = int(now if now is not None else time.time())

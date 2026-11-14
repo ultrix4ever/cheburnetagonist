@@ -23,6 +23,7 @@ def create_app(store, bot, secret, admin_secret=None):
         next_expiry = 0
         next_revocations = 0
         next_billing = asyncio.get_running_loop().time() + 30
+        next_unreachable = asyncio.get_running_loop().time() + 45
         while True:
             if asyncio.get_running_loop().time() >= next_expiry:
                 async with work_lock:
@@ -45,6 +46,14 @@ def create_app(store, bot, secret, admin_secret=None):
                         with store.connect() as db:
                             store.log(db, None, 'billing_tick_failed', 0)
                 next_billing = asyncio.get_running_loop().time() + 60
+            if asyncio.get_running_loop().time() >= next_unreachable:
+                async with work_lock:
+                    try:
+                        await bot.notify_unreachable()
+                    except Exception:
+                        with store.connect() as db:
+                            store.log(db, None, 'notify_unreachable_failed', 0)
+                next_unreachable = asyncio.get_running_loop().time() + 60
             async with work_lock:
                 with store.connect() as db:
                     job = db.execute("SELECT * FROM admin_jobs WHERE state='pending' ORDER BY created,rowid LIMIT 1").fetchone()

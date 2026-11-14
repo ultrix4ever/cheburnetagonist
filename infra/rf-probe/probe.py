@@ -37,6 +37,8 @@ ENGINES = {'awg': 'amneziawg-go-awg', 'awg3': 'amneziawg-go-awg3'}
 # Keys understood by awg-quick only; `awg setconf` rejects them.
 QUICK_ONLY = {'address', 'dns', 'mtu', 'table', 'preup', 'postup', 'predown', 'postdown', 'saveconfig'}
 PING_TARGETS = ('1.1.1.1', '8.8.8.8')
+# Reached directly, outside any tunnel: if none answers, the vantage host itself is offline.
+CONTROL_TARGETS = ('77.88.8.8', '1.1.1.1', '8.8.8.8')
 # Certificates of both are valid for the bare IP, so no DNS is needed inside the namespace.
 HTTP_TARGETS = ('https://1.1.1.1/cdn-cgi/trace', 'https://8.8.8.8/')
 HANDSHAKE_WAIT = 15
@@ -211,8 +213,14 @@ def main():
     if args.only:
         targets = [t for t in targets if t.id in args.only]
     started = int(time.time())
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(len(targets), 1)) as pool:
-        results = list(pool.map(probe, targets))
+    if any(icmp(host) for host in CONTROL_TARGETS):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(len(targets), 1)) as pool:
+            results = list(pool.map(probe, targets))
+    else:
+        # No verdict about any node: 'error' results are ignored by the bot.
+        results = [dict(id=t.id, name=t.name, status='error', stage='vantage', detail='vantage host has no internet',
+                        handshake_ms=None, rtt_ms=None, exit_ip=None, icmp=None, checked=started, duration_ms=0)
+                   for t in targets]
     report = dict(version=VERSION, vantage=args.vantage, started=started, finished=int(time.time()),
                   results=sorted(results, key=lambda r: r['id']), broken_targets=broken)
     text = json.dumps(report, ensure_ascii=False)

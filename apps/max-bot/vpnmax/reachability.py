@@ -1,10 +1,19 @@
 """Reachability of the nodes from a restricted network, as reported by infra/rf-probe.
 
 The probe is a real VPN client on a vantage host; this module only presents its results:
-to every user where a server is chosen, and to the owner on request. Nothing is pushed.
+to every user where a server is chosen, to the owner on request, and once per outage to
+the people who hold keys on the affected server.
 One vantage is one provider in one city: wording must never promise more than that.
 """
 import time
+
+
+def button(text, command):
+    return {'type': 'callback', 'text': text, 'payload': command}
+
+
+def profile_name(row):
+    return row.get('label') or row['name'].split(' [max-')[0]
 
 from .store import REACH_FRESH, Denied
 
@@ -36,7 +45,6 @@ def why(row):
 
 
 class ReachabilityMixin:
-    # Nothing is pushed to anyone: the status is shown where a server is being chosen, and in /rf.
 
     def reach_note(self, sid, now=None):
         """Short status for the server list shown to every user; empty when nothing is known."""
@@ -47,6 +55,44 @@ class ReachabilityMixin:
         if sid in self.store.unreachable_servers(now):
             return 'из России сейчас не подключается'
         return 'из России подключается' if all(r['status'] == 'ok' for r in rows) else ''
+
+    async def notify_unreachable(self, now=None):
+        """Ask each owner once per outage whether to revoke their keys on a server Russia cannot reach.
+
+        Nothing is revoked here: the buttons lead to the ordinary confirmed revocation.
+        When no server at all is reachable the probe itself is the likelier fault: nobody is told.
+        Returns the number of people messaged."""
+        now = int(now if now is not None else time.time())
+        fresh = [r for r in self.store.reachability() if now - r['checked'] <= REACH_FRESH]
+        if not any(r['status'] == 'ok' for r in fresh):
+            return 0
+        down = self.store.unreachable_servers(now)
+        names = {s['id']: s['name'] for s in self.store.catalog(self.protocols)}
+        sent = 0
+        for row in fresh:
+            sid, name = row['server_id'], names.get(row['server_id'], row['name'])
+            if sid not in self.protocols:
+                continue
+            if sid in down and row['notified'] != 'fail':
+                for uid, keys in self.store.owned_keys_on(sid).items():
+                    listing = '\n'.join(f"#{k['id']} {profile_name(k)}" for k in keys)
+                    await self.tell(uid, (
+                        f'Сервер «{name}» перестал подключаться из России. Обычно такая блокировка снимается сама '
+                        'примерно за 5 дней — тогда ключ снова заработает, ничего перенастраивать не нужно.\n'
+                        f'Ваши ключи на этом сервере:\n{listing}\n'
+                        'Можно подождать. Или отзовите ключ: он вернётся в ваш лимит, и вы сразу получите новый '
+                        'на сервере с отметкой ✅.'),
+                        [[button(f"Отозвать #{k['id']} {profile_name(k)[:30]}", f"/revoke {k['id']}")] for k in keys[:8]]
+                        + [[button('Оставить и подождать', '/my')]])
+                    sent += 1
+                self.store.reachability_notified(row['vantage'], sid, 'fail')
+            elif row['status'] == 'ok' and row['notified'] == 'fail':
+                for uid, keys in self.store.owned_keys_on(sid).items():
+                    await self.tell(uid, f'Сервер «{name}» снова подключается из России. Ваши ключи на нём работают: '
+                                    + ', '.join(f"#{k['id']} {profile_name(k)}" for k in keys) + '.', [[button('Мои ключи', '/my')]])
+                    sent += 1
+                self.store.reachability_notified(row['vantage'], sid, None)
+        return sent
 
     def reach_mark(self, sid, now=None):
         """Prefix for a server name in a list or on a button; empty when nothing fresh is known."""
