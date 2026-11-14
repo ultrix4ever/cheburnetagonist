@@ -138,7 +138,8 @@ def add_admin_routes(app, store, bot, secret, lock):
                 # Keep the [max-...] correlation label used for reconciliation.
                 suffix = row['name'][row['name'].find(' [max-'):] if ' [max-' in row['name'] else ''
                 label = name + suffix
-                db.execute('UPDATE profiles SET name=? WHERE id=?', (label, profile_id))
+                # An administrator's rename replaces the owner's own label.
+                db.execute('UPDATE profiles SET name=?,label=NULL WHERE id=?', (label, profile_id))
                 store.log(db, None, 'profile_renamed', profile_id)
             return {'name': label}
 

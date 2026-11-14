@@ -10,10 +10,14 @@ read -r KEY PREFIX HASH < <(docker exec amnezia-control-backend-1 python -c \
   "from app import apikeys; k,p,h=apikeys.generate(); print(k,p,h)")
 [ -n "$KEY" ] && [ -n "$PREFIX" ] && [ -n "$HASH" ]
 
+# Scope = exactly the servers the bot is configured for, so a rotation never narrows or widens it.
+SERVERS=$(grep '^PANEL_PROTOCOLS=' "$ENV" | cut -d= -f2- | python3 -c 'import json,sys; print(",".join(sorted(json.load(sys.stdin), key=int)))')
+[ -n "$SERVERS" ]
+
 docker exec -i amnezia-control-db-1 psql -v ON_ERROR_STOP=1 -q -U acontrol -d acontrol \
-  -v prefix="$PREFIX" -v hash="$HASH" <<'SQL'
+  -v prefix="$PREFIX" -v hash="$HASH" -v servers="$SERVERS" <<'SQL'
 INSERT INTO api_keys(name,prefix,key_hash,servers,expires_at,revoked,created_at)
-VALUES ('vpn-max-self-service', :'prefix', :'hash', '1,2,3,4', now() + interval '1 year', false, now());
+VALUES ('vpn-max-self-service', :'prefix', :'hash', :'servers', now() + interval '1 year', false, now());
 INSERT INTO audit_log(username,action,target,detail)
 VALUES ('admin','apikey_create','vpn-max-self-service','rotated by OpenClaw after password_change revoked all keys');
 SQL

@@ -25,7 +25,12 @@ NAME_HINT = 'До 40 символов: буквы, цифры, пробел и .
 
 
 def profile_name(row):
-    return row['name'].split(' [max-')[0]
+    # The user's own label wins; the node keeps the name the key was issued with.
+    try:
+        label = row['label']
+    except (KeyError, IndexError):
+        label = None
+    return label or row['name'].split(' [max-')[0]
 
 
 def profile_state(row):
@@ -231,7 +236,14 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
                         [button('Без названия', f"/new {prompt['server_id']} Ключ")], [button('Главное меню', '/start')]]
                 self.store.clear_prompt(uid)
                 return await self.command(uid, f"/new {prompt['server_id']} {name}")
-        elif not (cmd == '/new' and len(args) == 2):
+            if prompt and prompt['kind'] == 'rename':
+                pid, name = int(prompt['data']), ' '.join(args)
+                if not KEY_NAME.fullmatch(name):
+                    return f'Такое название не подойдёт. {NAME_HINT}\nВведите название ещё раз.', [[button('Отмена', f'/key {pid}')]]
+                self.store.clear_prompt(uid)
+                self.store.set_label(uid, pid, name)
+                return await self.command(uid, f'/key {pid}')
+        elif not (cmd == '/new' and len(args) == 2) and cmd != '/rename':
             # Any button press abandons a pending question, so stray text later is not misread.
             self.store.clear_prompt(uid)
         if cmd in ('/start', '/help'):
@@ -352,6 +364,11 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
             destination = next(s['name'] for s in allowed if s['id'] == sid)
             text = f"Старый ключ: #{row['id']} {profile_name(row)}.\nНовый сервер: {destination}.\n" + text
             return text, [[button('Подтвердить', '/confirm ' + token)]]
+        if cmd == '/rename' and len(args) == 2:
+            row = self.store.owned(uid, int(args[1]))
+            self.store.set_prompt(uid, 'rename', row['server_id'], data=str(row['id']))
+            return (f"Сейчас ключ называется «{profile_name(row)}».\nВведите новое название, например «Ноутбук». {NAME_HINT}"), [
+                [button('Отмена', f"/key {row['id']}")]]
         if cmd in ('/key', '/export', '/pause', '/resume', '/revoke') and len(args) == 2:
             row = self.store.owned(uid, int(args[1]), pending=cmd == '/key')
             pid = row['id']
@@ -365,9 +382,11 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
                 reach = self.reach_note(row['server_id'])
                 return f"#{pid} {profile_name(row)} · {server} · {self.key_state(row)}" + (
                     f"\n{self.reach_mark(row['server_id'])}Сервер {reach}." if reach else '') + (
-                    '\nМожно перевыпустить ключ на другом сервере.' if 'не подключается' in reach else ''), [
+                    '\nМожно перевыпустить ключ на другом сервере.' if 'не подключается' in reach else ''), (
+                    [[button('Перевыпустить на доступном сервере', f'/reissue {pid}')]] if 'не подключается' in reach else []) + [
                     [button('Показать ключ', f'/export {pid}')],
                     [button('Пауза', f'/pause {pid}'), button('Возобновить', f'/resume {pid}')],
+                    [button('Переименовать', f'/rename {pid}')],
                     [button('Перевыпустить', f'/reissue {pid}')],
                     [button('Ключ скомпрометирован', f'/compromised {pid}')],
                     [button('Отозвать', f'/revoke {pid}')]]

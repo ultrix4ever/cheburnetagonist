@@ -125,6 +125,9 @@ class Store:
                     db.execute(f'ALTER TABLE profiles ADD COLUMN {name} {definition}')
             if 'data' not in {r[1] for r in db.execute('PRAGMA table_info(prompts)')}:
                 db.execute('ALTER TABLE prompts ADD COLUMN data TEXT')
+            if 'label' not in columns:
+                # A name the owner gave in the bot; the node name is left untouched.
+                db.execute('ALTER TABLE profiles ADD COLUMN label TEXT')
             if 'legacy' not in columns:
                 # Keys that existed before billing are left alone by decision of the owner.
                 db.execute('ALTER TABLE profiles ADD COLUMN legacy INTEGER NOT NULL DEFAULT 0')
@@ -264,6 +267,12 @@ class Store:
         if not row:
             raise Denied('Профиль не найден.')
         return dict(row)
+
+    def set_label(self, uid, profile_id, label):
+        row = self.owned(uid, profile_id)
+        with self.connect() as db:
+            db.execute('UPDATE profiles SET label=? WHERE id=?', (label, row['id']))
+            self.log(db, uid, 'profile_labeled', row['id'])
 
     def profiles(self, uid):
         person = self.person(uid)
