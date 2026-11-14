@@ -1,0 +1,15 @@
+[Unit]
+Description=Protected off-host VPN registry and panel backup
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /root/.local/share/vpn-max/deployment/backup.py
+TimeoutStartSec=240
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/root/.local/share/vpn-max/backups
+PrivateTmp=true
+UMask=0077

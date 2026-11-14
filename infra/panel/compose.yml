@@ -1,0 +1,134 @@
+# ротация docker-логов: без max-size json-file-логи растут без предела и панель
+# может забить собственный диск (коллектор/expiry/бэкап пишут каждый цикл)
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    # Тюнинг под небольшую БД панели на облачном сервере (SSD). Значения
+    # переопределяются переменными ACONTROL_PG_* в .env, если нужно под другой хост.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${ACONTROL_PG_SHARED_BUFFERS:-256MB}
+      - -c
+      - effective_cache_size=${ACONTROL_PG_EFFECTIVE_CACHE:-1536MB}
+      - -c
+      - work_mem=${ACONTROL_PG_WORK_MEM:-16MB}
+      - -c
+      - maintenance_work_mem=${ACONTROL_PG_MAINT_MEM:-128MB}
+      # SSD/облачное хранилище: индексные сканы дешевле, чем при дефолте 4 (HDD)
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+    environment:
+      POSTGRES_DB: acontrol
+      POSTGRES_USER: acontrol
+      POSTGRES_PASSWORD: ${ACONTROL_DB_PASSWORD}
+    # PG 18+ Docker images store data in a version subdir under
+    # /var/lib/postgresql, so the volume is mounted at the parent (not …/data).
+    volumes:
+      - ./data/postgres:/var/lib/postgresql
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U acontrol -d acontrol"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  backend:
+    # Готовый образ из GHCR (docker compose pull); build остаётся для сборки из
+    # исходников (docker compose up --build). ACONTROL_VERSION задаётся в .env.
+    image: ghcr.io/mihsergeev/amnezia-control-backend:${ACONTROL_VERSION:-latest}
+    build: ./backend
+    restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    # Процесс работает от uid 10001 без прав. Root на старте нужен entrypoint'у
+    # только чтобы отдать /data этому пользователю, отсюда три права ниже.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    environment:
+      VPNPANEL_DB_URL: postgresql+asyncpg://acontrol:${ACONTROL_DB_PASSWORD}@db:5432/acontrol
+      VPNPANEL_JWT_SECRET: ${ACONTROL_JWT_SECRET}
+      VPNPANEL_ADMIN_USER: ${ACONTROL_ADMIN_USER}
+      VPNPANEL_ADMIN_PASSWORD: ${ACONTROL_ADMIN_PASSWORD}
+      # break-glass: 1 сбрасывает пароль/2FA админа при старте (потом убрать)
+      VPNPANEL_ADMIN_PASSWORD_RESET: ${ACONTROL_ADMIN_PASSWORD_RESET:-0}
+      VPNPANEL_DATA_DIR: /data
+      VPNPANEL_PANEL_IP: ${ACONTROL_PANEL_IP}
+      # Публичный URL панели для пульса/watchdog и ссылок в алертах. Задан
+      # ACONTROL_PANEL_URL - берем его, иначе https://<ACONTROL_DOMAIN>, а без
+      # домена остается пустым (никакого выдуманного URL).
+      VPNPANEL_PANEL_URL: ${ACONTROL_PANEL_URL:-${ACONTROL_DOMAIN:+https://${ACONTROL_DOMAIN}}}
+      # Swagger/OpenAPI на /api/docs (0 = выключить)
+      VPNPANEL_API_DOCS: ${ACONTROL_API_DOCS:-1}
+      # Адреса своих прокси, которым верим в X-Forwarded-For (пусто = loopback
+      # и docker-сети). Свой внешний прокси в другой сети добавьте сюда.
+      VPNPANEL_TRUSTED_PROXIES: ${ACONTROL_TRUSTED_PROXIES:-}
+      # Открытый наружу порт: IPv6-клиенты через docker-proxy приходят со
+      # шлюза сети. Бэкенд должен знать bind, чтобы не доверять их XFF.
+      VPNPANEL_PANEL_BIND: ${ACONTROL_BIND:-127.0.0.1:8080}
+      VPNPANEL_DEFAULT_SSH_USER: ${ACONTROL_DEFAULT_SSH_USER:-acontrol}
+      VPNPANEL_STATS_INTERVAL: ${ACONTROL_STATS_INTERVAL:-300}
+      VPNPANEL_EXPIRY_INTERVAL: ${ACONTROL_EXPIRY_INTERVAL:-300}
+      VPNPANEL_DISK_ALERT_PERCENT: ${ACONTROL_DISK_ALERT_PERCENT:-90}
+      VPNPANEL_ONLINE_DROP_PERCENT: ${ACONTROL_ONLINE_DROP_PERCENT:-35}
+      VPNPANEL_ONLINE_DROP_MIN_CLIENTS: ${ACONTROL_ONLINE_DROP_MIN_CLIENTS:-8}
+      VPNPANEL_BACKUP_INTERVAL_HOURS: ${ACONTROL_BACKUP_INTERVAL_HOURS:-24}
+      VPNPANEL_BACKUP_KEEP: ${ACONTROL_BACKUP_KEEP:-14}
+      # 1 = класть историю трафика в бэкап (сотни МБ); по умолчанию 0 — лёгкий бэкап
+      VPNPANEL_BACKUP_INCLUDE_TRAFFIC: ${ACONTROL_BACKUP_INCLUDE_TRAFFIC:-0}
+    volumes:
+      - ./data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      # /api/health проверяет и БД: при мертвом Postgres отдает 503, и контейнер
+      # помечается unhealthy (видно в docker ps, frontend ждет healthy при старте).
+      # Сам Docker unhealthy-контейнер НЕ перезапускает: restart: unless-stopped
+      # срабатывает только когда процесс завершился. Для автоперезапуска нужен
+      # внешний сторож (например autoheal) или ops/panel-watchdog.sh для алерта.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    image: ghcr.io/mihsergeev/amnezia-control-frontend:${ACONTROL_VERSION:-latest}
+    build: ./frontend
+    restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      backend:
+        condition: service_healthy
+    # Panel is served on the host at ACONTROL_BIND (default 127.0.0.1:8080).
+    # Put a reverse proxy with HTTPS in front, or use compose.caddy.yml.
+    ports:
+      - "${ACONTROL_BIND:-127.0.0.1:8080}:80"
+    networks:
+      - internal
+
+networks:
+  internal:

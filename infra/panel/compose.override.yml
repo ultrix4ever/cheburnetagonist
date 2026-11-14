@@ -1,0 +1,21 @@
+{
+  "services": {
+    "db": {
+      "image": "postgres@sha256:123b17998ccaf47e53b502e8c6a1e79afd8f579c6f3eec83c563da026f957395"
+    },
+    "backend": {
+      "image": "ghcr.io/mihsergeev/amnezia-control-backend@sha256:8e850c85cf57d5ed790c45194a1af28a81dbd99dd51854933100c178d2aa0564"
+    },
+    "frontend": {
+      "image": "ghcr.io/mihsergeev/amnezia-control-frontend@sha256:426750a4972184e787d93e9311f221cfab14ca2cb2370eb5d81fa2bac42ff9e0",
+      "ports": [
+        "127.0.0.1:8080:80",
+        "0.0.0.0:443:443"
+      ],
+      "volumes": [
+        "./nginx-panel.conf:/etc/nginx/conf.d/default.conf:ro",
+        "./tls:/etc/nginx/tls:ro"
+      ]
+    }
+  }
+}

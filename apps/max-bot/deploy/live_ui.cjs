@@ -1,0 +1,11 @@
+const {chromium}=require('playwright');const fs=require('fs');
+(async()=>{const credentials=JSON.parse(fs.readFileSync('/home/operator/.local/share/vpn-max/v2-build/browser-session.json','utf8'));const browser=await chromium.launch({headless:true});
+try{const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+await page.addInitScript(token=>localStorage.setItem('acontrol_token',token),credentials.token);
+await page.goto('http://127.0.0.1:18093');await page.getByRole('button',{name:'Пользователи MAX',exact:true}).click();
+await page.getByRole('heading',{name:'Пользователи MAX',exact:true}).waitFor();
+await page.getByRole('button',{name:'Owner',exact:true}).click();await page.getByRole('button',{name:'Отозвать весь VPN-доступ',exact:true}).waitFor();
+await page.screenshot({path:'/home/operator/.local/share/vpn-max/v2-build/live-panel.png',fullPage:true});
+if(errors.length)throw new Error('Live browser errors: '+errors.length);
+console.log('Live panel UI passed: authenticated registry page, owner card, no browser errors');
+}finally{await browser.close()}})().catch(e=>{console.error(e.message);process.exit(1)});

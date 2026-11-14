@@ -1,0 +1,17 @@
+.max-users .card { margin-block: 16px; }
+.max-users .max-table { overflow-x: auto; }
+.max-users table { width: 100%; border-collapse: collapse; text-align: left; }
+.max-users th, .max-users td { padding: 12px; vertical-align: top; border-bottom: 1px solid var(--border, #384050); }
+.max-users .max-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.max-users label:not(.max-check) { display: grid; gap: 6px; margin-block: 12px; }
+.max-users input:not([type=checkbox]), .max-users select { width: 100%; min-width: 0; }
+.max-users .max-check { display: inline-flex; align-items: center; gap: 8px; margin: 8px 18px 8px 0; }
+.max-users .max-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-block: 16px; }
+.max-users fieldset { border: 1px solid var(--border, #384050); border-radius: 8px; margin-block: 16px; }
+.max-users .max-selected { background: color-mix(in srgb, var(--accent, #528aff) 10%, transparent); }
+.max-users .max-job { padding-block: 8px; }
+.max-users details summary { cursor: pointer; font-weight: 600; }
+@media (max-width: 700px) { .max-users .max-fields { grid-template-columns: 1fr; } }
+.max-users button.danger { background: #b12b3a; border: 1px solid #d84454; color: #fff; }
+.max-users button.danger:hover { background: #c53545; }
+.max-users select { padding: 10px; border: 1px solid var(--border, #384050); border-radius: 8px; color: inherit; background: var(--bg-input, #202633); }

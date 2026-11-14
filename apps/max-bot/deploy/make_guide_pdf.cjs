@@ -1,0 +1,6 @@
+const path=require('path');
+const fs=require('fs');
+const output=path.resolve(__dirname,'../vpnmax/assets/instruction.pdf');
+fs.mkdirSync(path.dirname(output),{recursive:true});
+const {chromium}=require('playwright');
+(async()=>{const browser=await chromium.launch({headless:true});try{const page=await browser.newPage();await page.goto('file://'+path.resolve(__dirname,'../public-guide/guide.html'));await page.locator('details').evaluateAll(xs=>xs.forEach(x=>x.open=true));await page.addStyleTag({content:`@page{size:A4;margin:16mm 14mm 18mm} @media print{body{font-size:10pt;line-height:1.5}.hero{padding-top:0}h1{font-size:30pt}h2{font-size:22pt}h3{font-size:14pt}.section{padding:18px 0}.hero-grid,.import-grid,.device-grid,.manage-grid{display:block}.device,.manage-item{margin-bottom:14px}.hero-card{padding:20px}details{break-inside:avoid}h2,h3{break-after:avoid}.footer-grid{display:block}.skip{display:none}}`});await page.pdf({path:output,format:'A4',printBackground:true,displayHeaderFooter:true,headerTemplate:'<span></span>',footerTemplate:'<div style="width:100%;text-align:center;font-size:8px;color:#53666c">AMN · Инструкция · <span class="pageNumber"></span> / <span class="totalPages"></span></div>'});console.log('PDF generated')}finally{await browser.close()}})().catch(e=>{console.error(e.message);process.exit(1)});

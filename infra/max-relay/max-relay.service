@@ -1,0 +1,22 @@
+[Unit]
+Description=MAX API relay for VPN bot: reverse unix socket on 203.0.113.30 via 192.0.2.20
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+User=maxtunnel
+Group=maxtunnel
+# ProxyJump runs via $SHELL; the service account shell is nologin
+Environment=SHELL=/bin/sh
+ExecStart=/usr/bin/ssh -N -T -R /opt/vpn-max/relay/max-api.sock:platform-api2.max.ru:443 max-relay
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target

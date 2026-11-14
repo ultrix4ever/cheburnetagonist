@@ -1,0 +1,22 @@
+[Unit]
+Description=Private MAX API TCP relay for VPN bot over SSH
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=operator
+ExecStartPre=/usr/bin/ssh -i /home/operator/.ssh/id_ed25519_vpn -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 root@203.0.113.30 python3 /opt/vpn-max/relay_socket.py prepare
+ExecStart=/usr/bin/ssh -N -T -i /home/operator/.ssh/id_ed25519_vpn -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -R /opt/vpn-max/relay/max-api.sock:platform-api2.max.ru:443 root@203.0.113.30
+ExecStartPost=/usr/bin/ssh -i /home/operator/.ssh/id_ed25519_vpn -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 root@203.0.113.30 python3 /opt/vpn-max/relay_socket.py permissions
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,38 @@
+{
+    auto_https disable_redirects
+    servers {
+        strict_sni_host on
+    }
+}
+
+https://vpn.example.net {
+    tls {
+        issuer acme {
+            dir https://acme-v02.api.letsencrypt.org/directory
+            disable_tlsalpn_challenge
+        }
+    }
+    handle /webhook/max {
+        @not_post not method POST
+        respond @not_post 405
+        reverse_proxy vpn-max:8088
+    }
+    handle {
+        @denied not remote_ip 192.0.2.50 203.0.113.10
+        respond @denied "Forbidden" 403
+        reverse_proxy frontend:80
+    }
+}
+
+:80 {
+    @allowed {
+        host vpn.example.net
+        remote_ip 192.0.2.50 203.0.113.10
+    }
+    handle @allowed {
+        redir https://vpn.example.net{uri} 308
+    }
+    handle {
+        respond "Not Found" 404
+    }
+}

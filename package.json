@@ -1,0 +1,9 @@
+{
+  "name": "cheburnetagonist-tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Development-only browser and PDF tools, not MAX bot runtime",
+  "engines": {"node": ">=22"},
+  "scripts": {"guide:pdf": "node apps/max-bot/deploy/make_guide_pdf.cjs"},
+  "devDependencies": {"playwright": "1.63.0"}
+}

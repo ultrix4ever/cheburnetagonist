@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily off-host VPN registry and panel backup
+
+[Timer]
+OnCalendar=*-*-* 02:20:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+Unit=vpn-max-backup.service
+
+[Install]
+WantedBy=timers.target
