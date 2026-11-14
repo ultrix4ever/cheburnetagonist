@@ -7,6 +7,7 @@
 3. [Решения](../DECISIONS.md) и [roadmap](../ROADMAP.md): принятое против предложенного.
 4. [Операции](../OPERATIONS.md) / [deployment](../DEPLOYMENT.md): live изменения отдельно от Git.
 5. [Baseline](BASELINE-2026-11-14.md): что действительно проверялось.
+6. [Management cutover](MANAGEMENT-CUTOVER-2026-11-14.md): проверенный перенос и оставшиеся шаги.
 
 ## Где код
 
