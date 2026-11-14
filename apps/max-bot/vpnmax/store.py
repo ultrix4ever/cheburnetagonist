@@ -1,6 +1,7 @@
 """Protected ownership registry; never stores VPN private keys/configs."""
 import hashlib
 import json
+import re
 import secrets
 import sqlite3
 import time
@@ -12,6 +13,10 @@ from . import billing
 
 class Denied(Exception):
     pass
+
+
+REACH_CONFIRM = 2  # consecutive failed probe runs before a node counts as unreachable
+REACH_FRESH = 3 * 3600  # older probe results are shown to nobody as current
 
 
 class Store:
@@ -94,6 +99,12 @@ class Store:
               source TEXT NOT NULL, payment_id TEXT, reminded INTEGER NOT NULL DEFAULT 0,
               cancelled INTEGER);
             CREATE INDEX IF NOT EXISTS grants_person ON grants(person_id, expires);
+            CREATE TABLE IF NOT EXISTS reachability(
+              vantage TEXT NOT NULL, server_id INTEGER NOT NULL, name TEXT NOT NULL,
+              status TEXT NOT NULL, stage TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
+              handshake_ms INTEGER, rtt_ms INTEGER, exit_ip TEXT, icmp INTEGER,
+              checked INTEGER NOT NULL, since INTEGER NOT NULL, fails INTEGER NOT NULL DEFAULT 0,
+              notified TEXT, PRIMARY KEY(vantage, server_id));
             """)
             columns = {r[1] for r in db.execute('PRAGMA table_info(people)')}
             for name, definition in [('quota', 'INTEGER NOT NULL DEFAULT 5'),
@@ -690,6 +701,65 @@ class Store:
             db.execute("UPDATE replacements SET new_id=?,state='ready' WHERE id=?", (row['id'], rid))
             self.log(db, uid, 'replacement_ready', rid)
         return row['id']
+
+    # --- reachability from a restricted network (reported by infra/rf-probe) --------------------
+
+    def save_reachability(self, report):
+        """Store one probe report. Returns how many node results changed the stored state."""
+        vantage = str(report.get('vantage', ''))
+        if not re.fullmatch(r'[A-Za-z0-9._-]{1,40}', vantage):
+            raise Denied('Неверное имя точки проверки.')
+        saved = 0
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            for item in report['results']:
+                # 'error' means the probe itself broke: that is not evidence about the node.
+                if item.get('status') not in ('ok', 'fail'):
+                    continue
+                sid, status, checked = int(item['id']), item['status'], int(item['checked'])
+                old = db.execute('SELECT status,since,fails,checked FROM reachability WHERE vantage=? AND server_id=?',
+                                 (vantage, sid)).fetchone()
+                if old and checked <= old['checked']:
+                    continue  # a replayed or out-of-order report must not rewind the state
+                same = bool(old) and old['status'] == status
+                fails = 0 if status == 'ok' else (old['fails'] if same else 0) + 1
+                number = lambda key: int(item[key]) if isinstance(item.get(key), (int, float)) else None
+                db.execute('''INSERT INTO reachability(vantage,server_id,name,status,stage,detail,handshake_ms,rtt_ms,
+                exit_ip,icmp,checked,since,fails) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(vantage,server_id) DO UPDATE SET name=excluded.name,status=excluded.status,
+                stage=excluded.stage,detail=excluded.detail,handshake_ms=excluded.handshake_ms,rtt_ms=excluded.rtt_ms,
+                exit_ip=excluded.exit_ip,icmp=excluded.icmp,checked=excluded.checked,since=excluded.since,
+                fails=excluded.fails''',
+                           (vantage, sid, str(item.get('name') or f'Сервер {sid}')[:60], status,
+                            str(item.get('stage', ''))[:20], str(item.get('detail', ''))[:200],
+                            number('handshake_ms'), number('rtt_ms'),
+                            str(item['exit_ip'])[:45] if item.get('exit_ip') else None,
+                            None if item.get('icmp') is None else int(bool(item['icmp'])),
+                            checked, old['since'] if same else checked, fails))
+                saved += 1
+        return saved
+
+    def reachability(self):
+        with self.connect() as db:
+            online = {r['id']: r['online'] for r in db.execute('SELECT id,online FROM server_catalog')}
+            return [dict(r, panel_online=online.get(r['server_id']))
+                    for r in db.execute('SELECT * FROM reachability ORDER BY server_id,vantage')]
+
+    def reachability_changes(self, confirm=REACH_CONFIRM):
+        """Rows whose confirmed state differs from what the owner was last told."""
+        return [r for r in self.reachability()
+                if (r['status'] == 'fail' and r['fails'] >= confirm and r['notified'] != 'fail')
+                or (r['status'] == 'ok' and r['notified'] == 'fail')]
+
+    def reachability_notified(self, vantage, sid, status):
+        with self.connect() as db:
+            db.execute('UPDATE reachability SET notified=? WHERE vantage=? AND server_id=?', (status, vantage, sid))
+
+    def unreachable_servers(self, now=None, confirm=REACH_CONFIRM, fresh=REACH_FRESH):
+        """Server ids a fresh, confirmed probe could not use. Stale results warn nobody."""
+        now = int(now if now is not None else time.time())
+        return {r['server_id'] for r in self.reachability()
+                if r['status'] == 'fail' and r['fails'] >= confirm and now - r['checked'] <= fresh}
 
     def catalog(self, protocols):
         with self.connect() as db:

@@ -3,6 +3,7 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 
 from .api import Panel
 from .store import Store
@@ -25,6 +26,7 @@ def main():
     reconcile = commands.add_parser('reconcile', help='close a pending/unknown operation after checking the nodes')
     reconcile.add_argument('operation_id')
     reconcile.add_argument('outcome', choices=['failed', 'done'])
+    commands.add_parser('reachability', help='store a probe report (JSON on stdin) from infra/rf-probe')
     disable = commands.add_parser('disable')
     disable.add_argument('person_id', type=int)
     args = parser.parse_args()
@@ -44,6 +46,9 @@ def main():
                 raise SystemExit('No pending/unknown operation with this id')
             store.log(db, None, 'operation_reconciled_' + args.outcome, args.operation_id)
         print(f'Operation marked {args.outcome}')
+    elif args.command == 'reachability':
+        report = json.load(sys.stdin)
+        print(f"Stored {store.save_reachability(report)} of {len(report['results'])} results from {report['vantage']}")
     elif args.command == 'disable':
         with store.connect() as db:
             db.execute('UPDATE people SET active=0 WHERE id=?', (args.person_id,))

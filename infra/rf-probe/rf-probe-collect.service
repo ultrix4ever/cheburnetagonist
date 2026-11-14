@@ -1,0 +1,11 @@
+[Unit]
+Description=VPN reachability probe from restricted-network vantage hosts
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Site-specific values live in the drop-in /etc/systemd/system/rf-probe-collect.service.d/site.conf
+Environment=RF_PROBE_SINK_CONTAINER=amnezia-control-vpn-max-1
+ExecStart=/usr/bin/python3 /usr/local/lib/rf-probe/collect.py
+TimeoutStartSec=600

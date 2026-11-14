@@ -6,6 +6,7 @@ import time
 from . import billing
 from .api import RemoteError
 from .billing_bot import BillingMixin, key_billing_note
+from .reachability import ReachabilityMixin
 from .registration import GUIDE_HINT, RegistrationMixin, guide_button
 from .store import Denied
 
@@ -32,7 +33,7 @@ def profile_state(row):
             'revoking': 'отзывается', 'revoked': 'отозван'}.get(row['state'], row['state'])
 
 
-class Bot(RegistrationMixin, BillingMixin):
+class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
     ALERT_INTERVAL = 3600
 
     def __init__(self, store, panel, messenger, protocols, owner=None, payment_details=None, contact_secret=None,
@@ -209,6 +210,9 @@ class Bot(RegistrationMixin, BillingMixin):
             if not self.owner or uid != self.owner:
                 raise Denied('Команда доступна только администратору.')
             return await self.owner_command(cmd, args)
+        if cmd == '/rf':
+            self.owner_only(uid)
+            return self.reachability_report(), [[button('Главное меню', '/start')]]
         if cmd == '/start' and len(args) == 2:
             self.store.claim(uid, args[1])
         if not self.store.person_any(uid):
@@ -260,7 +264,10 @@ class Bot(RegistrationMixin, BillingMixin):
                 used, limit = self.store.usage(uid)
                 if used >= limit:
                     return self.limit_reached(person, used, limit)
-            status = lambda s: 'доступен' if s['online'] else ('не отвечает' if s['online'] == 0 else 'статус неизвестен')
+            def status(s):
+                note = self.reach_note(s['id'])
+                return ('доступен' if s['online'] else ('не отвечает' if s['online'] == 0 else 'статус неизвестен')
+                        ) + (f' · {note}' if note else '')
             return ('На каком сервере получить новый ключ?\n' + '\n'.join(f"{s['name']} · {status(s)}" for s in allowed)
                     if allowed else 'Нет разрешённых серверов. Обратитесь к администратору.'), [
                         [button(s['name'][:50], f"/new {s['id']}")] for s in allowed] + [[button('Главное меню', '/start')]]

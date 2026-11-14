@@ -2,4 +2,6 @@
 
 Существующая реализация импортирована без новой feature deployment.
 Общая очередь модернизации: [ROADMAP](../../../docs/ROADMAP.md).
-Push/CI не запускает deploy; production changes фиксируются отдельным release/runbook.
+Push/CI не запускает deploy. Релиз кода бота выполняет оператор: `release.py --host <manager>`
+из чистого commit; образ получает тег `git-<commit>`, прежний compose сохраняется в `pre-<tag>/`.
+Изменения панели, нод и зависимостей бота этим сценарием не выкатываются.

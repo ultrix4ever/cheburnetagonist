@@ -14,6 +14,8 @@
 - App и schema: `apps/max-bot/vpnmax/`.
 - Panel adapter/React: `apps/max-bot/panel-extension/`.
 - Failure/ownership/billing tests: `apps/max-bot/tests/`.
+- Проверка доступности из сети с ограничениями: `infra/rf-probe/` (probe, collector, units, README).
+- Релиз бота из commit: `apps/max-bot/deploy/release.py`.
 - Приватные one-off operator scripts импортированы обезличенно в deploy/tools, не являются штатным pipeline.
 
 ## Приватный операционный индекс

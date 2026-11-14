@@ -14,7 +14,9 @@
 2. `python3 apps/max-bot/deploy/prepare_v2.py .cache/upstream/amnezia-control .cache/build/panel`.
 3. В `.cache/build/panel/frontend`: `npm ci && npm run build`; dist скопировать в frontend-build.
 4. Собрать производные backend/frontend; сохранить digests и version manifest.
-5. Бот: `docker build -t vpn-max:<release> apps/max-bot` после тестов.
+5. Бот: `docker build -t vpn-max:<release> apps/max-bot` после тестов — для новой установки
+   или смены зависимостей. Обычный релиз кода на работающий manager — `apps/max-bot/deploy/release.py`
+   (overlay только `vpnmax/*.py`; CA и PDF не лежат в публичном Git и остаются из текущего образа).
 6. PDF строится отдельно из HTML и загружается в MAX; в runtime используется GUIDE_FILE_TOKEN,
    сам PDF не является автоматической частью регистрации webhook.
 
