@@ -1,6 +1,7 @@
 """Reachability of the nodes from a restricted network, as reported by infra/rf-probe.
 
-The probe is a real VPN client on a vantage host; this module only presents its results.
+The probe is a real VPN client on a vantage host; this module only presents its results:
+to every user where a server is chosen, and to the owner on request. Nothing is pushed.
 One vantage is one provider in one city: wording must never promise more than that.
 """
 import time
@@ -35,8 +36,7 @@ def why(row):
 
 
 class ReachabilityMixin:
-    REACH_STALE = 3600
-    reach_stale = False
+    # Nothing is pushed to anyone: the status is shown where a server is being chosen, and in /rf.
 
     def reach_note(self, sid, now=None):
         """Short status for the server list shown to every user; empty when nothing is known."""
@@ -47,6 +47,16 @@ class ReachabilityMixin:
         if sid in self.store.unreachable_servers(now):
             return 'из России сейчас не подключается'
         return 'из России подключается' if all(r['status'] == 'ok' for r in rows) else ''
+
+    def reach_mark(self, sid, now=None):
+        """Prefix for a server name in a list or on a button; empty when nothing fresh is known."""
+        note = self.reach_note(sid, now)
+        return '' if not note else ('⛔ ' if 'не подключается' in note else '✅ ')
+
+    def reach_legend(self, servers, now=None):
+        if not any(self.reach_note(s['id'], now) for s in servers):
+            return ''
+        return '\n✅ — из России подключается, ⛔ — сейчас не подключается (проверка раз в 15 минут).'
 
     def reachability_report(self, now=None):
         now = int(now if now is not None else time.time())
@@ -68,27 +78,3 @@ class ReachabilityMixin:
     def owner_only(self, uid):
         if not self.owner or uid != self.owner:
             raise Denied('Команда доступна только администратору.')
-
-    async def reachability_tick(self, now=None):
-        """Tell the owner about confirmed changes; a failed send is retried on the next tick."""
-        if not self.owner:
-            return
-        now = int(now if now is not None else time.time())
-        rows = self.store.reachability()
-        changes = self.store.reachability_changes()
-        lines = [f"«{r['name']}» не подключается из России (точка {r['vantage']}): {why(r)}." if r['status'] == 'fail'
-                 else f"«{r['name']}» снова подключается из России (точка {r['vantage']})." for r in changes]
-        stale = bool(rows) and now - max(r['checked'] for r in rows) > self.REACH_STALE
-        if stale and not self.reach_stale:
-            lines.append('Проверка доступности из России не обновлялась больше часа: статусы серверов могут быть устаревшими.')
-        elif self.reach_stale and not stale:
-            lines.append('Проверка доступности из России снова обновляется.')
-        if not lines:
-            return
-        try:
-            await self.max.send(self.owner, '\n'.join(lines) + '\nПодробнее: /rf')
-        except Exception:
-            return
-        self.reach_stale = stale
-        for row in changes:
-            self.store.reachability_notified(row['vantage'], row['server_id'], row['status'])

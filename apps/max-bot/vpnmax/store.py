@@ -745,16 +745,6 @@ class Store:
             return [dict(r, panel_online=online.get(r['server_id']))
                     for r in db.execute('SELECT * FROM reachability ORDER BY server_id,vantage')]
 
-    def reachability_changes(self, confirm=REACH_CONFIRM):
-        """Rows whose confirmed state differs from what the owner was last told."""
-        return [r for r in self.reachability()
-                if (r['status'] == 'fail' and r['fails'] >= confirm and r['notified'] != 'fail')
-                or (r['status'] == 'ok' and r['notified'] == 'fail')]
-
-    def reachability_notified(self, vantage, sid, status):
-        with self.connect() as db:
-            db.execute('UPDATE reachability SET notified=? WHERE vantage=? AND server_id=?', (status, vantage, sid))
-
     def unreachable_servers(self, now=None, confirm=REACH_CONFIRM, fresh=REACH_FRESH):
         """Server ids a fresh, confirmed probe could not use. Stale results warn nobody."""
         now = int(now if now is not None else time.time())

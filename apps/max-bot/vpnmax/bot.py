@@ -264,13 +264,12 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
                 used, limit = self.store.usage(uid)
                 if used >= limit:
                     return self.limit_reached(person, used, limit)
-            def status(s):
-                note = self.reach_note(s['id'])
-                return ('доступен' if s['online'] else ('не отвечает' if s['online'] == 0 else 'статус неизвестен')
-                        ) + (f' · {note}' if note else '')
-            return ('На каком сервере получить новый ключ?\n' + '\n'.join(f"{s['name']} · {status(s)}" for s in allowed)
+            status = lambda s: 'доступен' if s['online'] else ('не отвечает' if s['online'] == 0 else 'статус неизвестен')
+            lines = [f"{self.reach_mark(s['id'])}{s['name']} · {status(s)}" + (f" · {self.reach_note(s['id'])}" if self.reach_note(s['id']) else '')
+                     for s in allowed]
+            return ('На каком сервере получить новый ключ?\n' + '\n'.join(lines) + self.reach_legend(allowed)
                     if allowed else 'Нет разрешённых серверов. Обратитесь к администратору.'), [
-                        [button(s['name'][:50], f"/new {s['id']}")] for s in allowed] + [[button('Главное меню', '/start')]]
+                        [button(self.reach_mark(s['id']) + s['name'][:48], f"/new {s['id']}")] for s in allowed] + [[button('Главное меню', '/start')]]
         if cmd == '/device' and len(args) == 2:
             # Old messages may still contain device-selector buttons. Never issue on stale intent.
             if int(args[1]) not in [s['id'] for s in allowed]:
@@ -332,8 +331,8 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
             if cmd in ('/move', '/reissue') and len(args) == 2:
                 targets = [s for s in allowed if cmd == '/reissue' or s['id'] != row['server_id']]
                 return (f"Старый ключ: #{row['id']} {profile_name(row)}.\nНа каком сервере создать новый вместо старого?"
-                        if targets else 'Нет разрешённых серверов для нового ключа. Обратитесь к администратору.'), [
-                    [button(s['name'][:50] + (' (текущий)' if s['id'] == row['server_id'] else ''), f"{cmd} {row['id']} {s['id']}")] for s in targets] + [[button('Главное меню', '/start')]]
+                        + self.reach_legend(targets) if targets else 'Нет разрешённых серверов для нового ключа. Обратитесь к администратору.'), [
+                    [button(self.reach_mark(s['id']) + s['name'][:48] + (' (текущий)' if s['id'] == row['server_id'] else ''), f"{cmd} {row['id']} {s['id']}")] for s in targets] + [[button('Главное меню', '/start')]]
             sid = int(args[2]) if cmd in ('/move', '/reissue') else row['server_id']
             if sid not in [s['id'] for s in allowed]:
                 raise Denied('Целевой сервер не разрешён.')

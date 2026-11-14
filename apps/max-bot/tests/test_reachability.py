@@ -54,47 +54,9 @@ def rows(s):
 def test_one_failed_run_is_not_yet_an_outage(env):
     s, m, b = env
     assert s.save_reachability(report(T, s1='ok', s3='fail')) == 2
-    assert s.unreachable_servers(T) == set() and s.reachability_changes() == []
-    asyncio.run(b.reachability_tick(T))
-    assert m.sent == []
+    assert s.unreachable_servers(T) == set()
     s.save_reachability(report(T + 900, s1='ok', s3='fail'))
     assert s.unreachable_servers(T + 900) == {3} and rows(s)[3]['since'] == T and rows(s)[3]['fails'] == 2
-
-
-def test_owner_hears_once_about_outage_and_once_about_recovery(env):
-    s, m, b = env
-    for step in range(3):
-        s.save_reachability(report(T + step * 900, s1='ok', s3='fail'))
-        asyncio.run(b.reachability_tick(T + step * 900))
-    assert len(m.sent) == 1 and m.sent[0][0] == OWNER
-    text = m.sent[0][1]
-    assert 'Node 3' in text and 'не подключается из России' in text and 'ekb' in text and 'Node 1' not in text
-    assert 'на ping тоже не отвечает' in text and 'похоже на блокировку' in text
-    s.save_reachability(report(T + 3600, s1='ok', s3='ok'))
-    asyncio.run(b.reachability_tick(T + 3600))
-    asyncio.run(b.reachability_tick(T + 3601))
-    assert len(m.sent) == 2 and 'снова подключается' in m.sent[1][1]
-    assert s.unreachable_servers(T + 3600) == set()
-
-
-def test_a_single_good_run_resets_the_failure_count(env):
-    s, m, b = env
-    for step, status in enumerate(['fail', 'ok', 'fail']):
-        s.save_reachability(report(T + step * 900, s3=status))
-        asyncio.run(b.reachability_tick(T + step * 900))
-    assert rows(s)[3]['fails'] == 1 and m.sent == []
-
-
-def test_failed_alert_is_retried_not_lost(env):
-    s, m, b = env
-    s.save_reachability(report(T, s3='fail'))
-    s.save_reachability(report(T + 900, s3='fail'))
-    m.fail = True
-    asyncio.run(b.reachability_tick(T + 900))
-    assert rows(s)[3]['notified'] is None
-    m.fail = False
-    asyncio.run(b.reachability_tick(T + 930))
-    assert len(m.sent) == 1 and rows(s)[3]['notified'] == 'fail'
 
 
 def test_probe_error_and_replayed_report_do_not_change_state(env):
@@ -107,38 +69,6 @@ def test_probe_error_and_replayed_report_do_not_change_state(env):
     assert rows(s)[3]['status'] == 'ok' and rows(s)[3]['checked'] == T
 
 
-def test_panel_seeing_the_node_changes_the_explanation(env):
-    s, m, b = env
-    s.update_catalog([dict(id=3, name='Node 3', last_check_ok=False)])
-    s.save_reachability(report(T, s3='fail'))
-    s.save_reachability(report(T + 900, s3='fail'))
-    asyncio.run(b.reachability_tick(T + 900))
-    assert 'возможно, сервер выключен' in m.sent[0][1] and 'похоже на блокировку' not in m.sent[0][1]
-
-
-def test_owner_is_told_when_the_probe_goes_silent_and_when_it_returns(env):
-    s, m, b = env
-    s.save_reachability(report(T, s1='ok'))
-    asyncio.run(b.reachability_tick(T + 600))
-    assert m.sent == []
-    asyncio.run(b.reachability_tick(T + 3700))
-    asyncio.run(b.reachability_tick(T + 3800))
-    assert len(m.sent) == 1 and 'не обновлялась' in m.sent[0][1]
-    s.save_reachability(report(T + 4000, s1='ok'))
-    asyncio.run(b.reachability_tick(T + 4010))
-    assert len(m.sent) == 2 and 'снова обновляется' in m.sent[1][1]
-
-
-def test_no_owner_no_messages(tmp_path):
-    s = Store(tmp_path / 'db')
-    m = Max()
-    b = Bot(s, Panel(), m, {1: 'awg'})
-    s.save_reachability(report(T, s1='fail'))
-    s.save_reachability(report(T + 900, s1='fail'))
-    asyncio.run(b.reachability_tick(T + 900))
-    assert m.sent == []
-
-
 def test_users_see_status_in_server_list(env, monkeypatch):
     s, m, b = env
     monkeypatch.setattr('time.time', lambda: T + 1000)
@@ -147,10 +77,24 @@ def test_users_see_status_in_server_list(env, monkeypatch):
     s.save_reachability(report(T, s1='ok', s3='fail'))
     s.save_reachability(report(T + 900, s1='ok', s3='fail'))
     text, _ = asyncio.run(b.command(100, '/servers'))
-    lines = {line.split(' · ')[0]: line for line in text.splitlines()[1:]}
-    assert lines['Node 1'].endswith('доступен · из России подключается')
-    assert lines['Node 3'].endswith('доступен · из России сейчас не подключается')
-    assert lines['Node 2'].endswith('доступен')
+    lines = text.splitlines()
+    assert '✅ Node 1 · доступен · из России подключается' in lines
+    assert '⛔ Node 3 · доступен · из России сейчас не подключается' in lines
+    assert 'Node 2 · доступен' in lines and 'проверка раз в 15 минут' in lines[-1]
+    assert m.sent == []  # nothing is pushed to the owner
+
+
+def test_buttons_carry_the_mark_when_ordering_and_reissuing(env, monkeypatch):
+    s, m, b = env
+    monkeypatch.setattr('time.time', lambda: T + 1000)
+    s.save_reachability(report(T, s1='ok', s3='fail'))
+    s.save_reachability(report(T + 900, s1='ok', s3='fail'))
+    _, buttons = asyncio.run(b.command(100, '/new'))
+    assert [x[0]['text'] for x in buttons] == ['✅ Node 1', 'Node 2', '⛔ Node 3', 'Node 4', 'Главное меню']
+    assert buttons[2][0]['payload'] == '/new 3'  # an unreachable server can still be chosen
+    pid = s.issued(100, 1, 'awg', {'public_key': 'k', 'name': 'Old'})
+    text, buttons = asyncio.run(b.command(100, f'/reissue {pid}'))
+    assert [x[0]['text'] for x in buttons][:3] == ['✅ Node 1 (текущий)', 'Node 2', '⛔ Node 3'] and '⛔ — сейчас не подключается' in text
 
 
 def test_stale_results_warn_nobody(env, monkeypatch):
