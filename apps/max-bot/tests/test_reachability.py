@@ -78,8 +78,8 @@ def test_users_see_status_in_server_list(env, monkeypatch):
     s.save_reachability(report(T + 900, s1='ok', s3='fail'))
     text, _ = asyncio.run(b.command(100, '/servers'))
     lines = text.splitlines()
-    assert '✅ Node 1 · доступен · из России подключается' in lines
-    assert '⛔ Node 3 · доступен · из России сейчас не подключается' in lines
+    assert '✅ Node 1 · из России подключается' in lines
+    assert '⛔ Node 3 · из России сейчас не подключается' in lines
     assert 'Node 2 · доступен' in lines and 'проверка раз в 15 минут' in lines[-1]
     assert m.sent == []  # nothing is pushed to the owner
 
@@ -150,11 +150,11 @@ def test_my_keys_show_the_mark_and_distinguishable_buttons(env, monkeypatch):
     s.save_reachability(report(T + 900, s1='ok', s3='fail'))
     text, buttons = asyncio.run(b.command(100, '/my'))
     lines = text.splitlines()
-    assert f'✅ #{a} Ключ · Node 1 · работает' in lines and f'⛔ #{c} Ключ · Node 3 · работает' in lines
+    assert f'✅ #{a} Ключ · Node 1 · работает' in lines and f'⛔ #{c} Ключ · Node 3 · включён, но из России не подключается' in lines
     assert 'проверка раз в 15 минут' in lines[-1]
     assert [x[0]['text'] for x in buttons[:2]] == [f'✅ #{a} Ключ · Node 1', f'⛔ #{c} Ключ · Node 3']
     text, _ = asyncio.run(b.command(100, f'/key {c}'))
-    assert 'Node 3' in text and '⛔ Сервер из России сейчас не подключается.' in text and 'перевыпустить' in text
+    assert 'Node 3 · включён, но из России не подключается' in text and '⛔ Сервер из России сейчас не подключается.' in text and 'перевыпустить' in text
     text, _ = asyncio.run(b.command(100, f'/key {a}'))
     assert '✅ Сервер из России подключается.' in text and 'перевыпустить' not in text
     _, buttons = asyncio.run(b.command(100, '/revoke'))

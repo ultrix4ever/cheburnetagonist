@@ -265,7 +265,8 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
                 if used >= limit:
                     return self.limit_reached(person, used, limit)
             status = lambda s: 'доступен' if s['online'] else ('не отвечает' if s['online'] == 0 else 'статус неизвестен')
-            lines = [f"{self.reach_mark(s['id'])}{s['name']} · {status(s)}" + (f" · {self.reach_note(s['id'])}" if self.reach_note(s['id']) else '')
+            # "доступен" next to ⛔ reads as a contradiction: a fresh probe result replaces the panel's view.
+            lines = [f"{self.reach_mark(s['id'])}{s['name']} · {self.reach_note(s['id']) if s['online'] != 0 and self.reach_note(s['id']) else status(s)}"
                      for s in allowed]
             return ('На каком сервере получить новый ключ?\n' + '\n'.join(lines) + self.reach_legend(allowed)
                     if allowed else 'Нет разрешённых серверов. Обратитесь к администратору.'), [
@@ -288,7 +289,7 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
                 server = names.get(row['server_id'], str(row['server_id']))
                 note = key_billing_note(row, person['free'])
                 mark = self.reach_mark(row['server_id'])
-                lines.append(f"{mark}#{row['id']} {profile_name(row)} · {server} · {profile_state(row)}" + (f' · {note}' if note else ''))
+                lines.append(f"{mark}#{row['id']} {profile_name(row)} · {server} · {self.key_state(row)}" + (f' · {note}' if note else ''))
                 # Several keys may share one name: the number and server tell them apart.
                 buttons.append([button(f"{mark}#{row['id']} {profile_name(row)[:24]} · {server[:28]}", f"/key {row['id']}")])
             legend = self.reach_legend([{'id': r['server_id']} for r in shown])
@@ -362,7 +363,7 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
             if cmd == '/key':
                 server = next((s['name'] for s in self.store.catalog(self.protocols) if s['id'] == row['server_id']), str(row['server_id']))
                 reach = self.reach_note(row['server_id'])
-                return f"#{pid} {profile_name(row)} · {server} · {profile_state(row)}" + (
+                return f"#{pid} {profile_name(row)} · {server} · {self.key_state(row)}" + (
                     f"\n{self.reach_mark(row['server_id'])}Сервер {reach}." if reach else '') + (
                     '\nМожно перевыпустить ключ на другом сервере.' if 'не подключается' in reach else ''), [
                     [button('Показать ключ', f'/export {pid}')],

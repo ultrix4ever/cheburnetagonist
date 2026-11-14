@@ -53,6 +53,13 @@ class ReachabilityMixin:
         note = self.reach_note(sid, now)
         return '' if not note else ('⛔ ' if 'не подключается' in note else '✅ ')
 
+    def key_state(self, row, now=None):
+        """State of an owned key as its user experiences it, not as the node reports it."""
+        from .bot import profile_state
+        if row['state'] == 'active' and row['server_id'] in self.store.unreachable_servers(now):
+            return 'включён, но из России не подключается'
+        return profile_state(row)
+
     def reach_legend(self, servers, now=None):
         if not any(self.reach_note(s['id'], now) for s in servers):
             return ''
