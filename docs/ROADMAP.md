@@ -8,7 +8,7 @@
 - [x] Импортировать app/тесты/panel extensions/ops без live данных.
 - [x] Зафиксировать зависимости, архитектуру, provenance и границы проверки.
 - [x] Отделить MAX roadmap от корпоративного Pachca draft.
-- [ ] Подтвердить первый удалённый CI и зафиксировать baseline commit.
+- [x] Первый удалённый CI успешен: baseline commit d6fc6ac, workflow run 43590070836.
 
 Готово: чистый clone, offline tests, секрет-скан и документация воспроизводимы.
 
