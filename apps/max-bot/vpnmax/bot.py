@@ -116,7 +116,7 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
         for server in catalog:
             count = sum(r['server_id'] == server['id'] for r in rows)
             if count:
-                buttons.append([button(f"{server['name'][:50]} · {count}", f"/owned {action} {server['id']}")])
+                buttons.append([button(f"{self.reach_mark(server['id'])}{server['name'][:48]} · {count}", f"/owned {action} {server['id']}")])
         buttons.append([button('Главное меню', '/start')])
         return ('На каком сервере выбрать старый ключ?' if rows else
                 'Нет доступных для этой операции ключей. Старые профили привязывает администратор; отсутствующие на сервере требуют сверки.'), buttons
@@ -282,11 +282,18 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
             lines, buttons = [f'Занято {used} из {limit} ключей на всех серверах.'], []
             if self.limit_status(person):
                 lines.append(self.limit_status(person))
-            for row in rows[page * 8:(page + 1) * 8]:
-                server = next((s['name'] for s in self.store.catalog(self.protocols) if s['id'] == row['server_id']), str(row['server_id']))
+            names = {s['id']: s['name'] for s in self.store.catalog(self.protocols)}
+            shown = rows[page * 8:(page + 1) * 8]
+            for row in shown:
+                server = names.get(row['server_id'], str(row['server_id']))
                 note = key_billing_note(row, person['free'])
-                lines.append(f"#{row['id']} {profile_name(row)} · {server} · {profile_state(row)}" + (f' · {note}' if note else ''))
-                buttons.append([button(profile_name(row)[:40], f"/key {row['id']}")])
+                mark = self.reach_mark(row['server_id'])
+                lines.append(f"{mark}#{row['id']} {profile_name(row)} · {server} · {profile_state(row)}" + (f' · {note}' if note else ''))
+                # Several keys may share one name: the number and server tell them apart.
+                buttons.append([button(f"{mark}#{row['id']} {profile_name(row)[:24]} · {server[:28]}", f"/key {row['id']}")])
+            legend = self.reach_legend([{'id': r['server_id']} for r in shown])
+            if legend:
+                lines.append(legend.strip())
             if not rows:
                 lines.append('Привязанных ключей пока нет.')
             if page:
@@ -353,7 +360,11 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
             if row['state'] == 'missing':
                 return 'Профиль не найден при последней синхронизации. Нужна сверка администратором; слот пока не освобождён.', None
             if cmd == '/key':
-                return f"#{pid} {profile_name(row)} · {profile_state(row)}", [
+                server = next((s['name'] for s in self.store.catalog(self.protocols) if s['id'] == row['server_id']), str(row['server_id']))
+                reach = self.reach_note(row['server_id'])
+                return f"#{pid} {profile_name(row)} · {server} · {profile_state(row)}" + (
+                    f"\n{self.reach_mark(row['server_id'])}Сервер {reach}." if reach else '') + (
+                    '\nМожно перевыпустить ключ на другом сервере.' if 'не подключается' in reach else ''), [
                     [button('Показать ключ', f'/export {pid}')],
                     [button('Пауза', f'/pause {pid}'), button('Возобновить', f'/resume {pid}')],
                     [button('Перевыпустить', f'/reissue {pid}')],

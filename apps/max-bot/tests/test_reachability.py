@@ -134,3 +134,28 @@ def test_cli_imports_report_from_stdin(tmp_path):
                             input=json.dumps(report(T, s1='ok', s2='fail')), text=True, capture_output=True)
     assert result.returncode == 0 and 'Stored 2 of 2 results from ekb' in result.stdout
     assert {r['server_id']: r['status'] for r in Store(db).reachability()} == {1: 'ok', 2: 'fail'}
+
+
+def test_my_keys_show_the_mark_and_distinguishable_buttons(env, monkeypatch):
+    s, m, b = env
+    monkeypatch.setattr('time.time', lambda: T + 1000)
+    with s.connect() as db:
+        db.execute('UPDATE people SET quota=5 WHERE max_id=100')
+    a = s.issued(100, 1, 'awg', {'public_key': 'a', 'name': 'Ключ'})
+    c = s.issued(100, 3, 'awg3', {'public_key': 'c', 'name': 'Ключ'})
+    text, buttons = asyncio.run(b.command(100, '/my'))
+    assert f'#{a} Ключ · Node 1 · работает' in text.splitlines() and '✅' not in text
+    assert [x[0]['text'] for x in buttons[:2]] == [f'#{a} Ключ · Node 1', f'#{c} Ключ · Node 3']
+    s.save_reachability(report(T, s1='ok', s3='fail'))
+    s.save_reachability(report(T + 900, s1='ok', s3='fail'))
+    text, buttons = asyncio.run(b.command(100, '/my'))
+    lines = text.splitlines()
+    assert f'✅ #{a} Ключ · Node 1 · работает' in lines and f'⛔ #{c} Ключ · Node 3 · работает' in lines
+    assert 'проверка раз в 15 минут' in lines[-1]
+    assert [x[0]['text'] for x in buttons[:2]] == [f'✅ #{a} Ключ · Node 1', f'⛔ #{c} Ключ · Node 3']
+    text, _ = asyncio.run(b.command(100, f'/key {c}'))
+    assert 'Node 3' in text and '⛔ Сервер из России сейчас не подключается.' in text and 'перевыпустить' in text
+    text, _ = asyncio.run(b.command(100, f'/key {a}'))
+    assert '✅ Сервер из России подключается.' in text and 'перевыпустить' not in text
+    _, buttons = asyncio.run(b.command(100, '/revoke'))
+    assert [x[0]['text'] for x in buttons[:2]] == ['✅ Node 1 · 1', '⛔ Node 3 · 1']
