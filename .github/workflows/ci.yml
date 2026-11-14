@@ -25,7 +25,7 @@ jobs:
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m pytest -q
         working-directory: apps/max-bot
-      - run: python -m compileall -q apps/max-bot/vpnmax apps/max-bot/panel-extension apps/max-bot/deploy infra/backup infra/rf-probe
+      - run: python -m compileall -q apps/max-bot/vpnmax apps/max-bot/panel-extension apps/max-bot/deploy infra/backup infra/rf-probe infra/add-node
 
   secrets:
     runs-on: ubuntu-latest
