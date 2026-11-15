@@ -128,6 +128,13 @@ class Store:
                     db.execute(f'ALTER TABLE profiles ADD COLUMN {name} {definition}')
             if 'data' not in {r[1] for r in db.execute('PRAGMA table_info(prompts)')}:
                 db.execute('ALTER TABLE prompts ADD COLUMN data TEXT')
+            inbox = {r[1] for r in db.execute('PRAGMA table_info(inbox)')}
+            # Timing only, no content: where a slow reply loses its time (delivery, queue, handling).
+            for name in ('sent_ms', 'received_ms', 'started_ms', 'done_ms'):
+                if name not in inbox:
+                    db.execute(f'ALTER TABLE inbox ADD COLUMN {name} INTEGER')
+            if 'dedupe' not in inbox:
+                db.execute('ALTER TABLE inbox ADD COLUMN dedupe TEXT')
             if 'label' not in columns:
                 # A name the owner gave in the bot; the node name is left untouched.
                 db.execute('ALTER TABLE profiles ADD COLUMN label TEXT')
@@ -593,24 +600,44 @@ class Store:
                        (sid, proto, client['public_key'], client['name'], 'active', 1, int(time.time())))
 
     def enqueue(self, event):
+        """Queue an update. Returns False when the same button press is already waiting."""
         body = json.dumps(event, sort_keys=True, ensure_ascii=False)
         mid = event.get('message', {}).get('body', {}).get('mid')
         eid = ('message:' + str(mid)) if event.get('update_type') == 'message_created' and mid else self.digest(body)
+        dedupe = None
+        if event.get('update_type') == 'message_callback':
+            callback = event.get('callback', {})
+            dedupe = self.digest(f"{callback.get('user', {}).get('user_id')}:{callback.get('payload')}")
+        sent = event.get('timestamp')
         with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            # An impatient second tap on the same button must not produce a second answer.
+            if dedupe and db.execute("SELECT 1 FROM inbox WHERE dedupe=? AND state IN ('pending','processing')", (dedupe,)).fetchone():
+                return False
             # Exact repeats are coalesced even after processing.
-            db.execute('INSERT OR IGNORE INTO inbox(id,body,created) VALUES(?,?,?)', (eid, body, int(time.time())))
+            db.execute('INSERT OR IGNORE INTO inbox(id,body,created,sent_ms,received_ms,dedupe) VALUES(?,?,?,?,?,?)',
+                       (eid, body, int(time.time()), sent if isinstance(sent, int) else None, int(time.time() * 1000), dedupe))
+        return True
 
     def next_event(self):
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             row = db.execute("SELECT * FROM inbox WHERE state='pending' ORDER BY created,rowid LIMIT 1").fetchone()
             if row:
-                db.execute("UPDATE inbox SET state='processing' WHERE id=?", (row['id'],))
+                db.execute("UPDATE inbox SET state='processing',started_ms=? WHERE id=?", (int(time.time() * 1000), row['id']))
                 return row['id'], json.loads(row['body'])
 
     def event_done(self, eid):
         with self.connect() as db:
-            db.execute("UPDATE inbox SET state='done',body='{}' WHERE id=?", (eid,))
+            db.execute("UPDATE inbox SET state='done',body='{}',done_ms=? WHERE id=?", (int(time.time() * 1000), eid))
+
+    def timings(self, limit=200):
+        """Per-update delays in ms: delivery to us, wait in the queue, handling including the reply."""
+        with self.connect() as db:
+            return [dict(at=r['created'], delivery=r['received_ms'] - r['sent_ms'] if r['sent_ms'] else None,
+                         queue=r['started_ms'] - r['received_ms'], handle=r['done_ms'] - r['started_ms'])
+                    for r in db.execute("SELECT * FROM inbox WHERE done_ms IS NOT NULL AND started_ms IS NOT NULL "
+                                        "AND received_ms IS NOT NULL ORDER BY received_ms DESC LIMIT ?", (limit,))]
 
     def recover(self):
         with self.connect() as db:

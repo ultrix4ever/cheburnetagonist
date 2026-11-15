@@ -16,6 +16,13 @@ def create_app(store, bot, secret, admin_secret=None):
         raise ValueError('Webhook secret must contain at least 32 characters')
 
     work_lock = asyncio.Lock()
+    acks = set()
+
+    async def acknowledge(callback):
+        try:
+            await bot.max.acknowledge(callback)
+        except Exception:
+            pass
 
     async def worker():
         servers = iter(bot.protocols)
@@ -142,6 +149,12 @@ def create_app(store, bot, secret, admin_secret=None):
             raise HTTPException(400)
         if event.get('update_type') in ('message_created', 'message_callback', 'bot_started'):
             store.enqueue(event)
+            callback = event.get('callback', {}).get('callback_id') if event.get('update_type') == 'message_callback' else None
+            if callback and hasattr(bot.max, 'acknowledge'):
+                # Confirm the tap at once, not after the queue: otherwise people press again.
+                task = asyncio.create_task(acknowledge(callback))
+                acks.add(task)
+                task.add_done_callback(acks.discard)
         return {'ok': True}
 
     return app

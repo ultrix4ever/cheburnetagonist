@@ -200,11 +200,6 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
             else:
                 # An operation may be uncertain; don't claim rollback or retry it.
                 reply, buttons = 'Не удалось завершить запрос. Проверьте «Мои ключи»; если была операция изменения — нужна сверка администратором. Не создавайте её повторно.', None
-        if kind == 'message_callback' and hasattr(self.max, 'acknowledge'):
-            try:
-                await self.max.acknowledge(event['callback']['callback_id'])
-            except Exception:
-                pass
         parts = reply if isinstance(reply, list) else [reply]
         for i, part in enumerate(parts):
             if i:
@@ -228,6 +223,20 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
             if not self.owner or uid != self.owner:
                 raise Denied('Команда доступна только администратору.')
             return await self.owner_command(cmd, args)
+        if cmd == '/lag':
+            self.owner_only(uid)
+            rows = self.store.timings()
+            if not rows:
+                return 'Замеров пока нет.', None
+            def line(name, key):
+                values = sorted(r[key] for r in rows if r[key] is not None)
+                if not values:
+                    return f'{name}: нет данных'
+                return (f'{name}: обычно {values[len(values) // 2] / 1000:.1f} с, '
+                        f'худшие 10% — от {values[int(len(values) * 0.9)] / 1000:.1f} с, максимум {values[-1] / 1000:.1f} с')
+            return '\n'.join([f'Задержки по последним {len(rows)} обращениям:',
+                              line('Доставка от MAX до бота', 'delivery'), line('Ожидание в очереди бота', 'queue'),
+                              line('Обработка и отправка ответа', 'handle')]), None
         if cmd == '/rf':
             self.owner_only(uid)
             return self.reachability_report(), [[button('Главное меню', '/start')]]
