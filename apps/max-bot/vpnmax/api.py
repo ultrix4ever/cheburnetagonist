@@ -95,6 +95,20 @@ class MaxAPI:
         except httpx.HTTPError:
             raise RemoteError('MAX transport failure') from None
 
+    async def updates(self, marker=None, wait=30):
+        """Long polling. Works only while the bot has no webhook subscription."""
+        params = {'limit': 100, 'timeout': wait, 'types': 'message_created,message_callback,bot_started'}
+        if marker is not None:
+            params['marker'] = marker
+        try:
+            r = await self.http.get('updates', params=params, timeout=wait + 15)
+            if not r.is_success:
+                raise RemoteError(f'MAX updates HTTP {r.status_code}')
+            data = r.json()
+            return data.get('updates') or [], data.get('marker')
+        except (httpx.HTTPError, ValueError):
+            raise RemoteError('MAX updates transport failure') from None
+
     async def acknowledge(self, callback_id):
         try:
             r = await self.http.post('answers', params={'callback_id': callback_id},

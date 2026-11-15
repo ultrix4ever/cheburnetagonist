@@ -99,6 +99,7 @@ class Store:
               source TEXT NOT NULL, payment_id TEXT, reminded INTEGER NOT NULL DEFAULT 0,
               cancelled INTEGER);
             CREATE INDEX IF NOT EXISTS grants_person ON grants(person_id, expires);
+            CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS reach_outages(
               id INTEGER PRIMARY KEY, vantage TEXT NOT NULL, server_id INTEGER NOT NULL, name TEXT NOT NULL,
               started INTEGER NOT NULL, ended INTEGER NOT NULL);
@@ -630,6 +631,15 @@ class Store:
     def event_done(self, eid):
         with self.connect() as db:
             db.execute("UPDATE inbox SET state='done',body='{}',done_ms=? WHERE id=?", (int(time.time() * 1000), eid))
+
+    def setting(self, key):
+        with self.connect() as db:
+            row = db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
+        return row['value'] if row else None
+
+    def set_setting(self, key, value):
+        with self.connect() as db:
+            db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, str(value)))
 
     def timings(self, limit=200):
         """Per-update delays in ms: delivery to us, wait in the queue, handling including the reply."""

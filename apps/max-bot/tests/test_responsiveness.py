@@ -65,3 +65,30 @@ def test_webhook_acknowledges_every_tap_at_once_and_answers_once(tmp_path):
         assert db.execute('SELECT count(*) FROM inbox').fetchone()[0] == 1
     text, _ = asyncio.run(b.command(100, '/lag'))
     assert 'Замеров пока нет' in text
+
+
+def test_poller_queues_updates_acknowledges_taps_and_remembers_the_marker(tmp_path):
+    s = Store(tmp_path / 'db')
+    s.save_person(data())
+
+    class Polled(Max):
+        calls = []
+
+        async def updates(self, marker=None, wait=30):
+            self.calls.append(marker)
+            if len(self.calls) == 1:
+                raise RuntimeError('tunnel down')  # must retry, not die
+            if len(self.calls) == 2:
+                return [tap('/start', 'c1'), {'update_type': 'something_else'}], 7
+            await asyncio.sleep(3600)
+
+    m = Polled()
+    app = create_app(s, Bot(s, Panel(), m, {1: 'awg'}, owner=100), SECRET, poll=True)
+    with TestClient(app) as client:
+        for _ in range(60):
+            if m.sent:
+                break
+            time.sleep(0.1)
+        assert client.get('/health').status_code == 200
+    assert m.calls[:3] == [None, None, 7] and m.acked == ['c1'] and len(m.sent) == 1
+    assert s.setting('updates_marker') == '7'

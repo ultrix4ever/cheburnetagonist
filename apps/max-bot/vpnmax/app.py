@@ -2,6 +2,7 @@ import asyncio
 import hmac
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -11,18 +12,49 @@ from .bot import Bot
 from .store import Store
 
 
-def create_app(store, bot, secret, admin_secret=None):
+def create_app(store, bot, secret, admin_secret=None, poll=False):
     if len(secret) < 32:
         raise ValueError('Webhook secret must contain at least 32 characters')
 
     work_lock = asyncio.Lock()
     acks = set()
+    poll_state = {'failures': 0, 'last_ok': None}
 
     async def acknowledge(callback):
         try:
             await bot.max.acknowledge(callback)
         except Exception:
             pass
+
+    def accept(event):
+        if not isinstance(event, dict) or event.get('update_type') not in ('message_created', 'message_callback', 'bot_started'):
+            return
+        store.enqueue(event)
+        callback = event.get('callback', {}).get('callback_id') if event.get('update_type') == 'message_callback' else None
+        if callback and hasattr(bot.max, 'acknowledge'):
+            # Confirm the tap at once, not after the queue: otherwise people press again.
+            task = asyncio.create_task(acknowledge(callback))
+            acks.add(task)
+            task.add_done_callback(acks.discard)
+
+    async def poller():
+        """Pull updates ourselves instead of waiting for MAX to reach this host."""
+        marker = store.setting('updates_marker')
+        marker = int(marker) if marker and marker.lstrip('-').isdigit() else None
+        while True:
+            try:
+                updates, following = await bot.max.updates(marker)
+            except Exception:
+                poll_state['failures'] += 1
+                await asyncio.sleep(min(2 * poll_state['failures'], 20))
+                continue
+            poll_state.update(failures=0, last_ok=int(time.time()))
+            for event in updates:
+                accept(event)
+            if following is not None and following != marker:
+                marker = following
+                # Saved after the updates are queued: a crash repeats them, the queue drops exact repeats.
+                store.set_setting('updates_marker', marker)
 
     async def worker():
         servers = iter(bot.protocols)
@@ -113,13 +145,15 @@ def create_app(store, bot, secret, admin_secret=None):
     @asynccontextmanager
     async def lifespan(app):
         store.recover()
-        task = asyncio.create_task(worker())
+        tasks = [asyncio.create_task(worker())] + ([asyncio.create_task(poller())] if poll else [])
         yield
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     if admin_secret:
@@ -128,6 +162,9 @@ def create_app(store, bot, secret, admin_secret=None):
 
     @app.get('/health')
     async def health():
+        # In polling mode a silent poller means a deaf bot: fail the health check so it is noticed.
+        if poll and poll_state['failures'] >= 10:
+            raise HTTPException(503)
         return {'ok': True}
 
     @app.post('/webhook/max')
@@ -147,14 +184,7 @@ def create_app(store, bot, secret, admin_secret=None):
             raise HTTPException(400) from None
         if not isinstance(event, dict):
             raise HTTPException(400)
-        if event.get('update_type') in ('message_created', 'message_callback', 'bot_started'):
-            store.enqueue(event)
-            callback = event.get('callback', {}).get('callback_id') if event.get('update_type') == 'message_callback' else None
-            if callback and hasattr(bot.max, 'acknowledge'):
-                # Confirm the tap at once, not after the queue: otherwise people press again.
-                task = asyncio.create_task(acknowledge(callback))
-                acks.add(task)
-                task.add_done_callback(acks.discard)
+        accept(event)
         return {'ok': True}
 
     return app
@@ -185,4 +215,5 @@ def from_env():
               payment_phone=os.environ.get('PAYMENT_PHONE') or None,
               contact_secret=os.environ['MAX_BOT_TOKEN'],
               guide_token=os.environ.get('GUIDE_FILE_TOKEN'))
-    return create_app(store, bot, os.environ['MAX_WEBHOOK_SECRET'], os.environ.get('REGISTRY_ADMIN_SECRET'))
+    return create_app(store, bot, os.environ['MAX_WEBHOOK_SECRET'], os.environ.get('REGISTRY_ADMIN_SECRET'),
+                      poll=os.environ.get('MAX_UPDATES', 'webhook') == 'poll')
