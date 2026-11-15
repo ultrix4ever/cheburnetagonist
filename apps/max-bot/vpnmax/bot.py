@@ -89,8 +89,21 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
         used, limit = self.store.usage(uid)
         status = self.limit_status(self.store.person(uid))
         return (f'Ваши ключи: {used} из {limit} на всех серверах.\n' + (status + '\n' if status else '') +
+                self.servers_state(self.store.person(uid)) +
                 'Что хотите сделать: получить новый ключ, отозвать старый ключ или перевыпустить старый ключ?'
                 + '\n' + GUIDE_HINT), self.action_buttons()
+
+    def servers_state(self, person):
+        """Server list for the main menu: reachability from Russia when known, else the panel's view."""
+        allowed = json.loads(person['allowed_servers'])
+        lines = []
+        for s in self.store.catalog(self.protocols):
+            if s['id'] not in allowed:
+                continue
+            note = self.reach_note(s['id']) if s['online'] != 0 else ''
+            lines.append(f"{self.reach_mark(s['id']) if note else ''}{s['name']} · " + (
+                note or ('работает' if s['online'] else ('не отвечает' if s['online'] == 0 else 'статус неизвестен'))))
+        return 'Серверы:\n' + '\n'.join(lines) + '\n\n' if lines else ''
 
     async def deliver(self, uid, pid, text):
         """Issued key goes straight to the user: status, the bare key, then the main menu."""

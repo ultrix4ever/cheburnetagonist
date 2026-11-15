@@ -160,3 +160,19 @@ def test_my_keys_show_the_mark_and_distinguishable_buttons(env, monkeypatch):
     assert '✅ Сервер из России подключается.' in text and 'перевыпустить' not in text
     _, buttons = asyncio.run(b.command(100, '/revoke'))
     assert [x[0]['text'] for x in buttons[:2]] == ['✅ Node 1 · 1', '⛔ Node 3 · 1']
+
+
+def test_main_menu_shows_server_state(env, monkeypatch):
+    s, m, b = env
+    monkeypatch.setattr('time.time', lambda: T + 1000)
+    text, _ = asyncio.run(b.command(100, '/start'))
+    assert 'Серверы:\nNode 1 · работает\nNode 2 · работает' in text and '✅' not in text
+    s.save_reachability(report(T, s1='ok', s3='fail'))
+    s.save_reachability(report(T + 900, s1='ok', s3='fail'))
+    s.update_catalog([dict(id=4, name='Node 4', last_check_ok=False)])
+    lines = asyncio.run(b.command(100, '/start'))[0].splitlines()
+    assert '✅ Node 1 · из России подключается' in lines and '⛔ Node 3 · из России сейчас не подключается' in lines
+    assert 'Node 2 · работает' in lines and 'Node 4 · не отвечает' in lines
+    with s.connect() as db:
+        db.execute("UPDATE people SET allowed_servers='[1]' WHERE max_id=100")
+    assert 'Node 3' not in asyncio.run(b.command(100, '/start'))[0]
