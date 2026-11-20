@@ -1,0 +1,25 @@
+#!/bin/sh
+# Restores the shared cascade entry when its interfaces, guards or selector are gone.
+set -eu
+exec 9>/run/rf-cascade-health.lock
+flock -n 9 || exit 0
+C=amnezia-awg2
+/usr/local/sbin/rf-cascade-egress-guard
+healthy() {
+    timeout 10 docker exec "$C" sh -ec '
+    ip link show awg0 >/dev/null
+    ip rule show | grep -q "iif awg0 unreachable"
+    iptables -C FORWARD -i awg0 ! -o awgx+ -j DROP
+    ip6tables -C FORWARD -i awg0 -j DROP
+    pgrep -f failover.sh >/dev/null
+    test $(( $(date +%s) - $(cut -d" " -f1 /opt/amnezia/awg/failover.state) )) -lt 120
+    '
+}
+if healthy >/dev/null 2>&1; then exit 0; fi
+timeout 25 docker restart "$C" >/dev/null
+for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if healthy >/dev/null 2>&1; then echo 'cascade entry recovered'; exit 0; fi
+    sleep 1
+done
+echo 'cascade entry recovery incomplete' >&2
+exit 1

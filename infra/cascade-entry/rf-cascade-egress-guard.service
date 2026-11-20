@@ -1,0 +1,11 @@
+[Unit]
+Description=Fail-closed host egress guard for the shared cascade VPN entry
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rf-cascade-egress-guard
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

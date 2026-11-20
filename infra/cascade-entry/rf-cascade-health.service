@@ -1,0 +1,8 @@
+[Unit]
+Description=Repair the shared cascade VPN entry
+After=docker.service
+Requires=docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rf-cascade-health
+TimeoutStartSec=90

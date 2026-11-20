@@ -1,0 +1,29 @@
+#!/bin/sh
+# Host guard for the shared cascade entry: its bridge may talk only to its own uplinks.
+# Safe to run often: the rule set is rebuilt only when the wanted list changed or rules are missing.
+set -eu
+D=/opt/amnezia/awg-cascade
+BR=br-cascade
+SIG=/run/rf-cascade-guard.sig
+PORT=$(sed -n 's/^ListenPort *= *//p' "$D/awg0.conf" | head -1)
+want="reply $PORT"
+for f in "$D"/exits/awgx*.conf; do
+    want="$want
+$(sed -n 's/^Endpoint *= *//p' "$f" | head -1)"
+done
+count=$(( $(printf '%s\n' "$want" | wc -l) + 1 ))
+have=$(iptables -w -S RF-CASCADE-RULES 2>/dev/null | grep -c '^-A' || true)
+if [ "$have" != "$count" ] || [ "$(cat "$SIG" 2>/dev/null)" != "$want" ]; then
+    iptables -w -N RF-CASCADE-RULES >/dev/null 2>&1 || iptables -w -F RF-CASCADE-RULES
+    printf '%s\n' "$want" | while read -r a b; do
+        if [ "$a" = reply ]; then iptables -w -A RF-CASCADE-RULES -p udp --sport "$b" -m conntrack --ctstate DNAT -j ACCEPT
+        else iptables -w -A RF-CASCADE-RULES -d "${a%:*}" -p udp --dport "${a##*:}" -j ACCEPT; fi
+    done
+    iptables -w -A RF-CASCADE-RULES -j DROP
+    printf '%s' "$want" > "$SIG"
+fi
+iptables -w -N RF-CASCADE-EGRESS >/dev/null 2>&1 || true
+iptables -w -C RF-CASCADE-EGRESS -j RF-CASCADE-RULES >/dev/null 2>&1 || iptables -w -I RF-CASCADE-EGRESS 1 -j RF-CASCADE-RULES
+iptables -w -C RF-CASCADE-EGRESS -j DROP >/dev/null 2>&1 || iptables -w -A RF-CASCADE-EGRESS -j DROP
+iptables -w -C DOCKER-USER -i "$BR" -j RF-CASCADE-EGRESS >/dev/null 2>&1 || iptables -w -I DOCKER-USER 1 -i "$BR" -j RF-CASCADE-EGRESS
+ip6tables -w -C FORWARD -i "$BR" -j DROP >/dev/null 2>&1 || ip6tables -w -I FORWARD 1 -i "$BR" -j DROP

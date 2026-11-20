@@ -1,0 +1,8 @@
+[Unit]
+Description=Check the shared cascade VPN entry
+[Timer]
+OnBootSec=75
+OnUnitActiveSec=30
+Unit=rf-cascade-health.service
+[Install]
+WantedBy=timers.target
