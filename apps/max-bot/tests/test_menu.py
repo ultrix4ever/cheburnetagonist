@@ -178,3 +178,17 @@ def test_name_prompt_expires(env):
  with s.connect() as db:db.execute('UPDATE prompts SET expires=0')
  text,_=asyncio.run(b.command(100,'Телефон'))
  assert 'Выберите действие' in text and p.calls==[]
+
+
+def test_issue_servers_setting_narrows_new_keys_and_keeps_old(env):
+ s,p,b,pid=env
+ with s.connect() as db:db.execute('UPDATE people SET quota=3,allowed_servers=? WHERE max_id=100',('[1,3]',))
+ s.set_setting('issue_servers','[3]')
+ text,buttons=asyncio.run(b.command(100,'/new'))
+ assert '/new 3' in payloads(buttons) and '/new 1' not in payloads(buttons)
+ with pytest.raises(Denied):asyncio.run(b.command(100,'/new 1'))
+ text,buttons=asyncio.run(b.command(100,'/my'))
+ assert 'Denied' not in text
+ s.set_setting('issue_servers','')
+ text,buttons=asyncio.run(b.command(100,'/new'))
+ assert '/new 1' in payloads(buttons) and '/new 3' in payloads(buttons)

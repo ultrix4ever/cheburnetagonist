@@ -27,6 +27,8 @@ def main():
     reconcile.add_argument('operation_id')
     reconcile.add_argument('outcome', choices=['failed', 'done'])
     commands.add_parser('reachability', help='store a probe report (JSON on stdin) from infra/rf-probe')
+    issue = commands.add_parser('issue-servers', help='limit new keys to these servers for everyone: "9", "1,3,4", "all"; no argument shows the limit')
+    issue.add_argument('servers', nargs='?')
     disable = commands.add_parser('disable')
     disable.add_argument('person_id', type=int)
     args = parser.parse_args()
@@ -49,6 +51,13 @@ def main():
     elif args.command == 'reachability':
         report = json.load(sys.stdin)
         print(f"Stored {store.save_reachability(report)} of {len(report['results'])} results from {report['vantage']}")
+    elif args.command == 'issue-servers':
+        if args.servers is not None:
+            value = '' if args.servers == 'all' else json.dumps(sorted({int(x) for x in args.servers.split(',')}))
+            with store.connect() as db:
+                db.execute("INSERT INTO settings VALUES('issue_servers',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (value,))
+                store.log(db, None, 'issue_servers_set', value or 'all')
+        print('New keys are issued on:', store.setting('issue_servers') or 'all servers allowed to the person')
     elif args.command == 'disable':
         with store.connect() as db:
             db.execute('UPDATE people SET active=0 WHERE id=?', (args.person_id,))

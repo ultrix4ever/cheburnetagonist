@@ -364,7 +364,7 @@ class Store:
             if action != 'revoke' and self.unconfirmed_revocations(db, person['id']) >= self.MAX_UNCONFIRMED:
                 raise Denied(self.REVOCATION_BACKLOG)
             if action == 'issue':
-                if server_id not in json.loads(person['allowed_servers']):
+                if server_id not in self.allowed(person, db):
                     raise Denied('Этот сервер не разрешён.')
                 if self.used(db, person['id']) >= self.limit(db, person):
                     raise Denied('Достигнут лимит профилей.')
@@ -637,6 +637,18 @@ class Store:
             row = db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
         return row['value'] if row else None
 
+    def allowed(self, person, db=None):
+        """Servers this person may get keys on: their own list, narrowed by the global
+        'issue_servers' setting (JSON list) when it is set. Existing keys elsewhere stay usable."""
+        own = json.loads(person['allowed_servers'])
+        if db is None:
+            only = self.setting('issue_servers')
+        else:
+            row = db.execute("SELECT value FROM settings WHERE key='issue_servers'").fetchone()
+            only = row['value'] if row else None
+        only = json.loads(only) if only else None
+        return [sid for sid in own if sid in only] if only else own
+
     def set_setting(self, key, value):
         with self.connect() as db:
             db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, str(value)))
@@ -711,7 +723,7 @@ class Store:
     def start_replacement(self, uid, old_id, sid, mode):
         person = self.person(uid)
         old = self.owned(uid, old_id)
-        if old['state'] not in ('active', 'paused') or sid not in json.loads(person['allowed_servers']):
+        if old['state'] not in ('active', 'paused') or sid not in self.allowed(person):
             raise Denied('Профиль или целевой сервер недоступен.')
         if mode not in ('reissue', 'move', 'compromised'):
             raise ValueError('Invalid replacement mode')

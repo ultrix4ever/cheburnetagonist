@@ -95,7 +95,7 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
 
     def servers_state(self, person):
         """Server list for the main menu: reachability from Russia when known, else the panel's view."""
-        allowed = json.loads(person['allowed_servers'])
+        allowed = self.store.allowed(person)
         lines = []
         for s in self.store.catalog(self.protocols):
             if s['id'] not in allowed:
@@ -245,7 +245,7 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
         if not self.store.person_any(uid):
             return await self.unregistered(uid, cmd, args)
         person = self.store.person(uid)
-        allowed = [s for s in self.store.catalog(self.protocols) if s['id'] in json.loads(person['allowed_servers'])]
+        allowed = [s for s in self.store.catalog(self.protocols) if s['id'] in self.store.allowed(person)]
         if not cmd.startswith('/'):
             # Free text is only meaningful as the answer to a question the bot just asked.
             prompt = self.store.prompt(uid)
@@ -343,7 +343,7 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
             return '\n'.join(lines), buttons
         if cmd == '/new' and len(args) >= 2:
             sid = int(args[1])
-            if sid not in self.protocols or sid not in json.loads(person['allowed_servers']):
+            if sid not in self.protocols or sid not in self.store.allowed(person):
                 raise Denied('Этот сервер не разрешён.')
             if len(args) == 2:
                 used, limit = self.store.usage(uid)
