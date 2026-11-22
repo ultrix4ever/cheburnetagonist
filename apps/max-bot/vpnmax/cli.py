@@ -29,6 +29,8 @@ def main():
     commands.add_parser('reachability', help='store a probe report (JSON on stdin) from infra/rf-probe')
     issue = commands.add_parser('issue-servers', help='limit new keys to these servers for everyone: "9", "1,3,4", "all"; no argument shows the limit')
     issue.add_argument('servers', nargs='?')
+    shown = commands.add_parser('server-state', help='show or send server state to users: "on" or "off"; no argument shows the setting')
+    shown.add_argument('mode', nargs='?', choices=['on', 'off'])
     disable = commands.add_parser('disable')
     disable.add_argument('person_id', type=int)
     args = parser.parse_args()
@@ -58,6 +60,12 @@ def main():
                 db.execute("INSERT INTO settings VALUES('issue_servers',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (value,))
                 store.log(db, None, 'issue_servers_set', value or 'all')
         print('New keys are issued on:', store.setting('issue_servers') or 'all servers allowed to the person')
+    elif args.command == 'server-state':
+        if args.mode:
+            with store.connect() as db:
+                db.execute("INSERT INTO settings VALUES('server_state',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (args.mode,))
+                store.log(db, None, 'server_state_set', args.mode)
+        print('Server state for users:', store.setting('server_state') or 'on')
     elif args.command == 'disable':
         with store.connect() as db:
             db.execute('UPDATE people SET active=0 WHERE id=?', (args.person_id,))

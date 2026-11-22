@@ -95,6 +95,8 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
 
     def servers_state(self, person):
         """Server list for the main menu: reachability from Russia when known, else the panel's view."""
+        if self.state_hidden():
+            return ''
         allowed = self.store.allowed(person)
         lines = []
         for s in self.store.catalog(self.protocols):
@@ -300,7 +302,8 @@ class Bot(RegistrationMixin, BillingMixin, ReachabilityMixin):
                     return self.limit_reached(person, used, limit)
             status = lambda s: 'доступен' if s['online'] else ('не отвечает' if s['online'] == 0 else 'статус неизвестен')
             # "доступен" next to ⛔ reads as a contradiction: a fresh probe result replaces the panel's view.
-            lines = [f"{self.reach_mark(s['id'])}{s['name']} · {self.reach_note(s['id']) if s['online'] != 0 and self.reach_note(s['id']) else status(s)}"
+            lines = [s['name'] if self.state_hidden() else
+                     f"{self.reach_mark(s['id'])}{s['name']} · {self.reach_note(s['id']) if s['online'] != 0 and self.reach_note(s['id']) else status(s)}"
                      for s in allowed]
             return ('На каком сервере получить новый ключ?\n' + '\n'.join(lines) + self.reach_legend(allowed)
                     if allowed else 'Нет разрешённых серверов. Обратитесь к администратору.'), [

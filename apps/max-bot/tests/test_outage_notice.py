@@ -115,3 +115,19 @@ def test_owner_is_told_once_when_the_probe_goes_silent_and_once_when_it_returns(
     asyncio.run(b.notify_unreachable(T + 4010))
     asyncio.run(b.notify_unreachable(T + 4070))
     assert len(m.sent) == 2 and 'снова присылает' in m.sent[1][1]
+
+
+def test_hidden_server_state_sends_and_shows_nothing(env):
+    s, p, m, b, mine = env
+    s.set_setting('server_state', 'off')
+    outage(s)
+    assert asyncio.run(b.notify_unreachable(T + 900)) == 0 and m.sent == []
+    for cmd in ('/start', '/new', '/my', f'/key {mine}'):
+        text = asyncio.run(b.command(100, cmd))[0]
+        text = text if isinstance(text, str) else '\n'.join(text)
+        assert 'Серверы:' not in text and 'России' not in text and '⛔' not in text and '✅' not in text, cmd
+        # «работает» in /my and /key is the state of the person's own key, which stays.
+        assert 'доступен' not in text and (cmd not in ('/start', '/new') or 'работает' not in text), cmd
+    assert 'Node 3' in asyncio.run(b.command(OWNER, '/rf'))[0]
+    s.set_setting('server_state', 'on')
+    assert asyncio.run(b.notify_unreachable(T + 960)) == 1

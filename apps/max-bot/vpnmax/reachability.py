@@ -46,8 +46,16 @@ def why(row):
 
 class ReachabilityMixin:
 
+    def state_hidden(self):
+        """Setting server_state=off: users are neither shown nor sent server state. With a single
+        entry server that picks its exit itself, per-server state tells people nothing they can act on.
+        The owner's /rf report and the probe-silence alert stay."""
+        return self.store.setting('server_state') == 'off'
+
     def reach_note(self, sid, now=None):
         """Short status for the server list shown to every user; empty when nothing is known."""
+        if self.state_hidden():
+            return ''
         now = int(now if now is not None else time.time())
         rows = [r for r in self.store.reachability() if r['server_id'] == sid and now - r['checked'] <= REACH_FRESH]
         if not rows:
@@ -85,6 +93,8 @@ class ReachabilityMixin:
         Returns the number of people messaged."""
         now = int(now if now is not None else time.time())
         await self.probe_watch(now)
+        if self.state_hidden():
+            return 0
         fresh = [r for r in self.store.reachability() if now - r['checked'] <= REACH_FRESH]
         if not any(r['status'] == 'ok' for r in fresh):
             return 0
@@ -124,7 +134,7 @@ class ReachabilityMixin:
     def key_state(self, row, now=None):
         """State of an owned key as its user experiences it, not as the node reports it."""
         from .bot import profile_state
-        if row['state'] == 'active' and row['server_id'] in self.store.unreachable_servers(now):
+        if not self.state_hidden() and row['state'] == 'active' and row['server_id'] in self.store.unreachable_servers(now):
             return 'включён, но из России не подключается'
         return profile_state(row)
 
